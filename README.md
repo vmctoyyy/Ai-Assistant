@@ -23,16 +23,25 @@ docs/
 
 ### Publishing it
 
-GitHub Pages will not serve a private repository on a free plan. Either make
-this repository public, or drop the `docs/` folder on any static host
-(Netlify, Cloudflare Pages, Vercel — all have free tiers).
+**GitHub Pages**, from this repository, is the simplest route: no extra account
+and no third-party app authorization. It requires the repository to be public —
+Pages will not serve a private repository on a free plan.
 
-For GitHub Pages: **Settings → Pages → Source: Deploy from a branch →
-`main` / `/docs`**. The site appears at
-`https://<user>.github.io/Ai-Assistant/` within a minute or two.
+**Settings → Pages → Source: Deploy from a branch → `main` / `/docs`.** The site
+appears at `https://<user>.github.io/Ai-Assistant/` a minute or two later, and
+redeploys on every push to `main`.
 
-HTTPS is required — the service worker that makes the app work offline will not
-register over plain HTTP.
+Everything in `docs/` uses relative paths, so serving from a subdirectory like
+`/Ai-Assistant/` works without changes: the service worker scope, the manifest
+`start_url` and the icon paths all resolve under it. `docs/.nojekyll` stops
+GitHub running the site through Jekyll.
+
+To keep the repository private instead, Cloudflare Pages and Netlify both build
+private repos on their free tiers. Set framework preset **None**, build command
+**blank**, output directory **`docs`**.
+
+HTTPS is required either way — the service worker that makes the app work
+offline will not register over plain HTTP.
 
 ### Installing it on an iPhone
 
