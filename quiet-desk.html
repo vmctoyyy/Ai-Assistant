@@ -1,0 +1,1182 @@
+<title>Quiet Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ground:#F1F3F0;
+  --surface:#FBFCFA;
+  --surface-2:#E8ECE7;
+  --ink:#232927;
+  --ink-2:#5C6663;
+  --ink-3:#8B9591;
+  --line:#DCE0DA;
+  --line-2:#C7CEC6;
+  --accent:#3D6E60;
+  --accent-soft:#E0EAE5;
+  --up:#4A7C64;
+  --down:#9C6A5B;
+  --tap:52px;
+  --wrap:34rem;
+  --serif:"Newsreader",Georgia,"Times New Roman",serif;
+  --sans:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#131614;
+    --surface:#1A1E1C;
+    --surface-2:#222826;
+    --ink:#E7EAE6;
+    --ink-2:#A3ACA7;
+    --ink-3:#79837E;
+    --line:#2A302D;
+    --line-2:#39413D;
+    --accent:#84B7A4;
+    --accent-soft:#1F2C27;
+    --up:#86B99C;
+    --down:#C49485;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#131614;
+  --surface:#1A1E1C;
+  --surface-2:#222826;
+  --ink:#E7EAE6;
+  --ink-2:#A3ACA7;
+  --ink-3:#79837E;
+  --line:#2A302D;
+  --line-2:#39413D;
+  --accent:#84B7A4;
+  --accent-soft:#1F2C27;
+  --up:#86B99C;
+  --down:#C49485;
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--ground);
+  color:var(--ink);
+  font-family:var(--sans);
+  font-size:16px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  -webkit-tap-highlight-color:transparent;
+}
+button,input,textarea{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer;padding:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion: reduce){
+  *{transition:none!important;animation:none!important}
+}
+
+.page{
+  max-width:var(--wrap);
+  margin:0 auto;
+  padding:2.25rem 1.125rem calc(7.5rem + env(safe-area-inset-bottom,0px));
+  display:flex;
+  flex-direction:column;
+  gap:2.75rem;
+}
+
+/* ---- header ---- */
+.head{display:flex;flex-direction:column;gap:.15rem}
+.head .wd{
+  font-family:var(--sans);font-size:.75rem;font-weight:500;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);
+}
+.head .dt{
+  font-family:var(--serif);font-size:2.125rem;font-weight:400;
+  letter-spacing:-.01em;line-height:1.15;text-wrap:balance;
+}
+
+/* ---- section scaffolding ---- */
+.sec{display:flex;flex-direction:column;gap:.875rem}
+.eyebrow{
+  display:flex;align-items:baseline;justify-content:space-between;gap:1rem;
+  font-size:.6875rem;font-weight:600;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--ink-3);
+  padding-bottom:.5rem;border-bottom:1px solid var(--line);
+}
+.eyebrow .hint{font-weight:400;letter-spacing:.06em;text-transform:none;font-size:.75rem}
+
+/* ---- top 3 ---- */
+.top3{display:flex;flex-direction:column;gap:.5rem}
+.slot{
+  display:flex;align-items:center;gap:.875rem;
+  min-height:76px;padding:.75rem .875rem;
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:12px;
+  transition:background .15s ease,border-color .15s ease;
+}
+.slot.empty{background:transparent;border-style:dashed;border-color:var(--line-2)}
+.slot .body{flex:1;min-width:0;text-align:left}
+.slot .txt{
+  font-family:var(--serif);font-size:1.1875rem;line-height:1.3;
+  overflow-wrap:anywhere;
+}
+.slot.done .txt{color:var(--ink-3);text-decoration:line-through;text-decoration-thickness:1px}
+.slot .prompt{color:var(--ink-3);font-size:.9375rem;font-style:italic;font-family:var(--serif)}
+.slot .rank{
+  font-family:var(--mono);font-size:.6875rem;color:var(--ink-3);
+  width:1ch;flex:none;
+}
+
+/* ---- check control ---- */
+.check{
+  flex:none;width:30px;height:30px;border-radius:50%;
+  border:1.5px solid var(--line-2);
+  display:grid;place-items:center;
+  transition:border-color .15s ease,background .15s ease;
+}
+.check.on{background:var(--accent);border-color:var(--accent)}
+.check svg{opacity:0;color:var(--surface)}
+.check.on svg{opacity:1}
+.check.on svg{color:var(--ground)}
+.tapzone{
+  display:flex;align-items:center;gap:.875rem;flex:1;min-width:0;
+  text-align:left;min-height:var(--tap);
+}
+
+/* ---- task list ---- */
+.tasks{display:flex;flex-direction:column}
+.rowwrap{position:relative;overflow:hidden}
+.rowwrap::after{
+  content:"Delete";position:absolute;inset:0 1rem 0 auto;
+  display:flex;align-items:center;
+  font-size:.6875rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--down);opacity:0;pointer-events:none;
+}
+.rowwrap.sliding::after{opacity:1}
+.row{
+  position:relative;background:var(--ground);
+  display:flex;align-items:center;gap:.75rem;
+  padding:.5rem 0;border-bottom:1px solid var(--line);
+  touch-action:pan-y;
+}
+.row .txt{font-size:1rem;line-height:1.35;overflow-wrap:anywhere}
+.row.done .txt{color:var(--ink-3);text-decoration:line-through;text-decoration-thickness:1px}
+.iconbtn{
+  flex:none;width:40px;height:40px;border-radius:8px;
+  display:grid;place-items:center;color:var(--ink-3);
+  transition:color .15s ease,background .15s ease;
+}
+.iconbtn:hover{color:var(--ink);background:var(--surface-2)}
+.empty-note{
+  color:var(--ink-3);font-family:var(--serif);font-style:italic;
+  font-size:.9375rem;padding:.75rem 0;
+}
+.tally{
+  font-size:.8125rem;color:var(--ink-3);padding-top:.75rem;
+  font-variant-numeric:tabular-nums;
+}
+
+/* ---- schedule ---- */
+.evrow{
+  display:flex;align-items:flex-start;gap:.875rem;
+  padding:.6875rem 0;border-bottom:1px solid var(--line);
+}
+.evrow .t{
+  font-family:var(--mono);font-size:.875rem;font-variant-numeric:tabular-nums;
+  color:var(--ink-2);padding-top:.1rem;width:4.25em;flex:none;
+}
+.evrow .ti{flex:1;min-width:0;overflow-wrap:anywhere}
+.evrow.past{opacity:.42}
+.evrow.next .t{color:var(--accent);font-weight:500}
+.nextpill{
+  display:inline-block;margin-left:.5rem;font-size:.625rem;font-weight:600;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--accent);
+  vertical-align:.1em;
+}
+.addrow{display:flex;gap:.5rem;align-items:center;padding-top:.875rem}
+.field{
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:10px;padding:.6875rem .75rem;min-height:46px;
+  width:100%;
+}
+.field::placeholder{color:var(--ink-3)}
+.field:focus{outline:none;border-color:var(--accent)}
+.field.time{width:7.25em;flex:none;font-family:var(--mono);font-size:.9375rem}
+.composer .field,.addrow .field{flex:1;min-width:0}
+.btn{
+  border:1px solid var(--line-2);border-radius:10px;
+  padding:.625rem 1rem;min-height:46px;font-size:.875rem;font-weight:500;
+  color:var(--ink-2);white-space:nowrap;
+  transition:border-color .15s ease,color .15s ease,background .15s ease;
+}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.primary{
+  background:var(--accent);border-color:var(--accent);
+  color:var(--ground);font-weight:600;
+}
+.btn.primary:hover{opacity:.9;color:var(--ground)}
+.btn:disabled{opacity:.45;cursor:default}
+.btn:disabled:hover{border-color:var(--line-2);color:var(--ink-2)}
+
+/* ---- habits ---- */
+.habit{
+  display:flex;align-items:center;gap:.875rem;
+  padding:.5rem 0;border-bottom:1px solid var(--line);
+  min-height:var(--tap);
+}
+.habit .name{flex:1;min-width:0;font-size:.9375rem;text-align:left}
+.habit .name em{
+  display:block;font-style:normal;font-size:.75rem;color:var(--ink-3);
+  margin-top:.05rem;
+}
+.dots{display:flex;gap:5px;align-items:center;flex:none}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--line-2)}
+.dot.on{background:var(--accent)}
+.dot.today{box-shadow:0 0 0 2px var(--ground),0 0 0 3px var(--line-2)}
+.dot.today.on{box-shadow:0 0 0 2px var(--ground),0 0 0 3px var(--accent)}
+
+/* ---- markets ---- */
+.disc{
+  display:flex;align-items:center;justify-content:space-between;gap:1rem;
+  width:100%;min-height:var(--tap);text-align:left;
+}
+.disc .lbl{font-size:.9375rem}
+.disc .meta{font-size:.75rem;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.chev{color:var(--ink-3);transition:transform .18s ease;flex:none}
+.chev.open{transform:rotate(180deg)}
+.mkt{
+  display:grid;grid-template-columns:1fr 5.75em 4.75em;
+  gap:.5rem;align-items:center;
+  padding:.4375rem 0;border-bottom:1px solid var(--line);
+}
+.mkt .nm{min-width:0;font-size:.9375rem}
+.mkt .nm em{
+  display:block;font-style:normal;font-family:var(--mono);
+  font-size:.6875rem;color:var(--ink-3);letter-spacing:.04em;
+}
+.mkt input{
+  width:100%;background:transparent;border:0;border-bottom:1px solid var(--line);
+  padding:.5rem .125rem;min-height:42px;text-align:right;
+  font-family:var(--mono);font-size:.875rem;font-variant-numeric:tabular-nums;
+}
+.mkt input:focus{outline:none;border-bottom-color:var(--accent)}
+.mkt input::placeholder{color:var(--ink-3);opacity:.55}
+.mkt .chg{position:relative;display:flex;align-items:center}
+.mkt .chg input{padding-right:1.1em}
+.mkt .chg::after{
+  content:"%";position:absolute;right:.125rem;
+  font-family:var(--mono);font-size:.8125rem;color:var(--ink-3);
+  pointer-events:none;
+}
+.mkt .chg.up input{color:var(--up)}
+.mkt .chg.down input{color:var(--down)}
+.mktfoot{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding-top:1rem}
+
+/* ---- composer ---- */
+.composer{
+  position:fixed;left:0;right:0;bottom:0;z-index:20;
+  background:var(--ground);
+  border-top:1px solid var(--line);
+  padding:.625rem 1.125rem calc(.625rem + env(safe-area-inset-bottom,0px));
+}
+.composer .inner{
+  max-width:var(--wrap);margin:0 auto;display:flex;gap:.5rem;align-items:center;
+}
+
+/* ---- sheet ---- */
+.scrim{
+  position:fixed;inset:0;z-index:40;background:rgba(12,16,14,.42);
+  display:flex;align-items:flex-end;justify-content:center;
+}
+.sheet{
+  background:var(--ground);width:100%;max-width:var(--wrap);
+  border-radius:16px 16px 0 0;border:1px solid var(--line);border-bottom:0;
+  padding:1.25rem 1.125rem calc(1.25rem + env(safe-area-inset-bottom,0px));
+  display:flex;flex-direction:column;gap:.875rem;
+  max-height:88vh;
+}
+.sheet h2{
+  margin:0;font-family:var(--serif);font-size:1.375rem;font-weight:400;
+}
+.sheet p{margin:0;font-size:.875rem;color:var(--ink-2)}
+.sheet textarea{
+  background:var(--surface);border:1px solid var(--line);border-radius:12px;
+  padding:.875rem;min-height:38vh;resize:none;line-height:1.6;width:100%;
+}
+.sheet textarea:focus{outline:none;border-color:var(--accent)}
+.sheetfoot{display:flex;gap:.5rem;justify-content:flex-end}
+
+/* ---- footer / settings ---- */
+.foot{
+  display:flex;flex-direction:column;gap:.625rem;
+  padding-top:1.5rem;border-top:1px solid var(--line);
+}
+.foot .note{font-size:.75rem;color:var(--ink-3);line-height:1.55}
+.linkbtn{
+  align-self:flex-start;font-size:.8125rem;color:var(--ink-3);
+  text-decoration:underline;text-underline-offset:3px;
+  text-decoration-color:var(--line-2);min-height:44px;
+}
+.linkbtn:hover{color:var(--down);text-decoration-color:var(--down)}
+.linkbtn.armed{color:var(--down);text-decoration-color:var(--down)}
+
+/* ---- states ---- */
+.banner{
+  background:var(--surface);border:1px solid var(--line-2);border-radius:10px;
+  padding:.75rem .875rem;font-size:.8125rem;color:var(--ink-2);line-height:1.5;
+}
+.skel{display:flex;flex-direction:column;gap:.75rem}
+.skel i{
+  display:block;border-radius:4px;background:var(--surface-2);
+  animation:pulse 1.6s ease-in-out infinite;
+}
+.skel .line{height:14px;width:100%}
+.skel .line:nth-child(2){width:70%;animation-delay:.12s}
+.skel .line:nth-child(3){width:45%;animation-delay:.24s}
+.skel .big{height:70px;border-radius:12px;width:100%}
+.skel .big:nth-child(2){animation-delay:.12s}
+.skel .big:nth-child(3){animation-delay:.24s}
+@keyframes pulse{0%,100%{opacity:.5}50%{opacity:.9}}
+.loadwrap{
+  max-width:var(--wrap);margin:0 auto;padding:2.25rem 1.125rem;
+  display:flex;flex-direction:column;gap:2rem;
+}
+.sr{
+  position:absolute;width:1px;height:1px;overflow:hidden;
+  clip:rect(0 0 0 0);white-space:nowrap;
+}
+</style>
+
+<div id="root"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var h = React.createElement;
+  var useState = React.useState, useEffect = React.useEffect,
+      useRef = React.useRef, useMemo = React.useMemo, useCallback = React.useCallback;
+
+  function tag(name) { return function (props) {
+    var kids = Array.prototype.slice.call(arguments, 1);
+    return React.createElement.apply(null, [name, props].concat(kids));
+  }; }
+  var div = tag("div"), span = tag("span"), button = tag("button"), input = tag("input"),
+      section = tag("section"), header = tag("header"), p = tag("p"), h2 = tag("h2"),
+      textarea = tag("textarea"), label = tag("label"), footer = tag("footer");
+
+  /* ---------- icons ---------- */
+  function icon(d, size) {
+    return h("svg", {
+      width: size || 18, height: size || 18, viewBox: "0 0 24 24", fill: "none",
+      stroke: "currentColor", strokeWidth: 1.75, strokeLinecap: "round",
+      strokeLinejoin: "round", "aria-hidden": "true"
+    }, h("path", { d: d }));
+  }
+  var I_CHECK = "M5 12.5l4.5 4.5L19 7";
+  var I_X = "M6 6l12 12M18 6L6 18";
+  var I_UP = "M12 19V5M6 11l6-6 6 6";
+  var I_DOWN = "M12 5v14M18 13l-6 6-6-6";
+  var I_PLUS = "M12 5v14M5 12h14";
+  var I_CHEV = "M6 9l6 6 6-6";
+
+  /* ---------- dates ---------- */
+  var WD = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  var WD3 = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  var MO3 = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  function dayKey(d) {
+    var m = d.getMonth() + 1, dd = d.getDate();
+    return d.getFullYear() + "-" + (m < 10 ? "0" + m : m) + "-" + (dd < 10 ? "0" + dd : dd);
+  }
+  function todayKey() { return dayKey(new Date()); }
+  function nzDate(d) { return WD3[d.getDay()] + " " + d.getDate() + " " + MO3[d.getMonth()]; }
+  function shiftKey(key, delta) {
+    var parts = key.split("-");
+    var d = new Date(+parts[0], +parts[1] - 1, +parts[2]);
+    d.setDate(d.getDate() + delta);
+    return dayKey(d);
+  }
+  function keyToDate(key) {
+    var parts = key.split("-");
+    return new Date(+parts[0], +parts[1] - 1, +parts[2]);
+  }
+  function nowMinutes() { var d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
+  function timeToMinutes(t) {
+    if (!t) return 0;
+    var bits = String(t).split(":");
+    return (+bits[0] || 0) * 60 + (+bits[1] || 0);
+  }
+  function staleness(iso) {
+    if (!iso) return "not entered yet";
+    var then = new Date(iso).getTime();
+    if (isNaN(then)) return "not entered yet";
+    var mins = Math.round((Date.now() - then) / 60000);
+    if (mins < 1) return "updated just now";
+    if (mins < 60) return "updated " + mins + " min ago";
+    var hrs = Math.round(mins / 60);
+    if (hrs < 24) return "updated " + hrs + (hrs === 1 ? " hour ago" : " hours ago");
+    var days = Math.round(hrs / 24);
+    return "updated " + days + (days === 1 ? " day ago" : " days ago");
+  }
+
+  function uid() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  /* ---------- fixed content ---------- */
+  var HABITS = [
+    { id: "move",  name: "Movement",     sub: "Exercise, a walk, anything physical" },
+    { id: "fuel",  name: "Water & food", sub: "Ate properly, drank enough" },
+    { id: "sleep", name: "Sleep & wind-down", sub: "Screens down, bed on time" },
+    { id: "focus", name: "Focused work block", sub: "One uninterrupted stretch" }
+  ];
+
+  var MARKETS = [
+    { id: "djia",   name: "Dow Jones",  sym: "DJIA" },
+    { id: "nasdaq", name: "Nasdaq",     sym: "IXIC" },
+    { id: "nzx50",  name: "NZX 50",     sym: "NZ50" },
+    { id: "asx200", name: "ASX 200",    sym: "XJO" },
+    { id: "btc",    name: "Bitcoin",    sym: "BTC" },
+    { id: "xrp",    name: "XRP",        sym: "XRP" },
+    { id: "eth",    name: "Ethereum",   sym: "ETH" },
+    { id: "gold",   name: "Gold",       sym: "XAU" },
+    { id: "silver", name: "Silver",     sym: "XAG" }
+  ];
+
+  /* ---------- storage ---------- */
+  var PATHS = {
+    tasks:    "dashboard/tasks",
+    schedule: "dashboard/schedule",
+    habits:   "dashboard/habits",
+    markets:  "dashboard/markets"
+  };
+
+  function blankTasks(day) { return { day: day, top: [null, null, null], list: [], doneYesterday: 0 }; }
+  function blankSchedule(day) { return { day: day, events: [] }; }
+  function blankHabits() { return { days: {} }; }
+  function blankMarkets() { return { items: {}, updatedAt: null }; }
+
+  var store = {
+    db: null,
+    timers: {},
+    pending: {},
+    onError: null,
+    ready: false
+  };
+
+  function flush(key) {
+    var value = store.pending[key];
+    delete store.pending[key];
+    delete store.timers[key];
+    if (!store.db || value === undefined) return;
+    store.db.doc(PATHS[key]).set(value).catch(function (e) {
+      if (store.onError) store.onError(e);
+    });
+  }
+  function save(key, value) {
+    if (!store.ready) return;
+    store.pending[key] = value;
+    if (store.timers[key]) clearTimeout(store.timers[key]);
+    store.timers[key] = setTimeout(function () { flush(key); }, 350);
+  }
+  function flushAll() {
+    Object.keys(store.timers).forEach(function (k) {
+      clearTimeout(store.timers[k]); flush(k);
+    });
+  }
+  window.addEventListener("pagehide", flushAll);
+  window.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden") flushAll();
+  });
+
+  function readDoc(key, fallback) {
+    if (!store.db) return Promise.resolve(fallback);
+    return store.db.doc(PATHS[key]).get().then(function (snap) {
+      if (!snap.exists) return fallback;
+      var data = snap.data();
+      return data && typeof data === "object" ? data : fallback;
+    });
+  }
+
+  /* ---------- rollover ---------- */
+  function rollTasks(t, today) {
+    if (!t || t.day === today) return t;
+    var doneCount = 0;
+    var top = (t.top || [null, null, null]).map(function (slot) {
+      if (!slot) return null;
+      if (slot.done) { doneCount++; return null; }
+      return slot;
+    });
+    var list = (t.list || []).filter(function (task) {
+      if (task.done) { doneCount++; return false; }
+      return true;
+    });
+    while (top.length < 3) top.push(null);
+    return { day: today, top: top, list: list, doneYesterday: doneCount };
+  }
+  function rollSchedule(s, today) {
+    if (!s || s.day === today) return s;
+    return { day: today, events: [] };
+  }
+  function pruneHabits(hb, today) {
+    var keep = {};
+    for (var i = 0; i < 30; i++) keep[shiftKey(today, -i)] = true;
+    var out = {};
+    Object.keys(hb.days || {}).forEach(function (k) { if (keep[k]) out[k] = hb.days[k]; });
+    return { days: out };
+  }
+
+  /* ---------- small components ---------- */
+  function Check(props) {
+    return div({ className: "check" + (props.on ? " on" : ""), "aria-hidden": "true" }, icon(I_CHECK, 16));
+  }
+
+  function Eyebrow(props) {
+    return div({ className: "eyebrow" },
+      span(null, props.title),
+      props.hint ? span({ className: "hint" }, props.hint) : null
+    );
+  }
+
+  /* ---------- swipeable task row ---------- */
+  function TaskRow(props) {
+    var task = props.task;
+    var ref = useRef(null);
+    var start = useRef(0);
+    var moved = useRef(false);
+    var draggingRef = useRef(false);
+    var offsetRef = useRef(0);
+    var st = useState(0), offset = st[0], setOffset = st[1];
+
+    function down(e) {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      if (e.target.closest("button")) return;
+      start.current = e.clientX;
+      moved.current = false;
+      draggingRef.current = true;
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
+    }
+    function move(e) {
+      if (!draggingRef.current) return;
+      var dx = e.clientX - start.current;
+      if (Math.abs(dx) > 6) moved.current = true;
+      var next = dx < 0 ? Math.max(dx, -132) : 0;
+      offsetRef.current = next;
+      setOffset(next);
+    }
+    function up() {
+      if (!draggingRef.current) return;
+      draggingRef.current = false;
+      if (offsetRef.current < -80) {
+        props.onDelete();
+        return;
+      }
+      offsetRef.current = 0;
+      setOffset(0);
+    }
+    function toggle() {
+      if (moved.current) { moved.current = false; return; }
+      props.onToggle();
+    }
+
+    return div({ className: "rowwrap" + (offset < -8 ? " sliding" : "") },
+      div({
+        ref: ref,
+        className: "row" + (task.done ? " done" : ""),
+        style: {
+          transform: "translateX(" + offset + "px)",
+          transition: draggingRef.current ? "none" : "transform .18s ease"
+        },
+        onPointerDown: down, onPointerMove: move, onPointerUp: up, onPointerCancel: up
+      },
+        button({
+          className: "tapzone", onClick: toggle,
+          "aria-pressed": task.done ? "true" : "false",
+          "aria-label": (task.done ? "Mark not done: " : "Mark done: ") + task.text
+        },
+          h(Check, { on: task.done }),
+          span({ className: "txt" }, task.text)
+        ),
+        props.canPromote ? button({
+          className: "iconbtn", onClick: props.onPromote,
+          "aria-label": "Move to Top 3: " + task.text
+        }, icon(I_UP, 17)) : null,
+        button({
+          className: "iconbtn", onClick: props.onDelete,
+          "aria-label": "Delete: " + task.text
+        }, icon(I_X, 17))
+      )
+    );
+  }
+
+  /* ---------- top 3 ---------- */
+  function TopThree(props) {
+    var st = useState(-1), editing = st[0], setEditing = st[1];
+    var st2 = useState(""), draft = st2[0], setDraft = st2[1];
+    var committing = useRef(false);
+
+    function commit(i) {
+      if (committing.current) return;
+      committing.current = true;
+      setTimeout(function () { committing.current = false; }, 0);
+      var text = draft.trim();
+      if (text) props.onSet(i, text);
+      setDraft("");
+      setEditing(-1);
+    }
+
+    return div({ className: "top3" }, props.top.map(function (slot, i) {
+      if (!slot && editing === i) {
+        return div({ className: "slot empty", key: "e" + i },
+          span({ className: "rank" }, String(i + 1)),
+          h("form", {
+            style: { flex: 1, minWidth: 0 },
+            onSubmit: function (e) { e.preventDefault(); commit(i); }
+          },
+            input({
+              className: "field", autoFocus: true, value: draft,
+              placeholder: "What matters most?",
+              "aria-label": "Priority " + (i + 1),
+              onChange: function (e) { setDraft(e.target.value); },
+              onBlur: function () { commit(i); }
+            })
+          )
+        );
+      }
+      if (!slot) {
+        return button({
+          className: "slot empty", key: "e" + i,
+          onClick: function () { setDraft(""); setEditing(i); },
+          "aria-label": "Set priority " + (i + 1)
+        },
+          span({ className: "rank" }, String(i + 1)),
+          div({ className: "body" }, span({ className: "prompt" }, "Set your " + ["first","second","third"][i] + " priority"))
+        );
+      }
+      return div({ className: "slot" + (slot.done ? " done" : ""), key: slot.id },
+        span({ className: "rank" }, String(i + 1)),
+        button({
+          className: "tapzone", onClick: function () { props.onToggle(i); },
+          "aria-pressed": slot.done ? "true" : "false",
+          "aria-label": (slot.done ? "Mark not done: " : "Mark done: ") + slot.text
+        },
+          h(Check, { on: slot.done }),
+          span({ className: "txt" }, slot.text)
+        ),
+        button({
+          className: "iconbtn", onClick: function () { props.onDemote(i); },
+          "aria-label": "Move down to the task list: " + slot.text
+        }, icon(I_DOWN, 17))
+      );
+    }));
+  }
+
+  /* ---------- brain dump ---------- */
+  function BrainDump(props) {
+    var st = useState(""), text = st[0], setText = st[1];
+    var lines = text.split("\n").map(function (l) {
+      return l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim();
+    }).filter(Boolean);
+
+    useEffect(function () {
+      function esc(e) { if (e.key === "Escape") props.onClose(); }
+      window.addEventListener("keydown", esc);
+      return function () { window.removeEventListener("keydown", esc); };
+    }, []);
+
+    return div({
+      className: "scrim",
+      onMouseDown: function (e) { if (e.target === e.currentTarget) props.onClose(); }
+    },
+      div({ className: "sheet", role: "dialog", "aria-modal": "true", "aria-label": "Brain dump" },
+        h2(null, "Brain dump"),
+        p(null, "One task per line. Everything lands in the list below your Top 3."),
+        textarea({
+          value: text, autoFocus: true, spellCheck: true,
+          placeholder: "Ring the plumber\nDraft the Thursday update\nBook flights for October\nReply to Marcus",
+          onChange: function (e) { setText(e.target.value); }
+        }),
+        div({ className: "sheetfoot" },
+          button({ className: "btn", onClick: props.onClose }, "Cancel"),
+          button({
+            className: "btn primary", disabled: lines.length === 0,
+            onClick: function () { props.onAdd(lines); props.onClose(); }
+          }, lines.length === 0 ? "Add tasks" : "Add " + lines.length + (lines.length === 1 ? " task" : " tasks"))
+        )
+      )
+    );
+  }
+
+  /* ---------- markets ---------- */
+  function Markets(props) {
+    var st = useState(false), open = st[0], setOpen = st[1];
+    var st2 = useState(function () { return props.data.items || {}; });
+    var draft = st2[0], setDraft = st2[1];
+    var st3 = useState(false), dirty = st3[0], setDirty = st3[1];
+
+    function edit(id, field, value) {
+      var next = {};
+      Object.keys(draft).forEach(function (k) { next[k] = { price: draft[k].price, change: draft[k].change }; });
+      if (!next[id]) next[id] = { price: "", change: "" };
+      next[id][field] = value;
+      setDraft(next);
+      setDirty(true);
+    }
+    function commit() {
+      props.onSave(draft);
+      setDirty(false);
+    }
+
+    var body = !open ? null : div({ className: "sec", style: { gap: 0, paddingTop: ".25rem" } },
+      MARKETS.map(function (m) {
+        var v = draft[m.id] || { price: "", change: "" };
+        var num = parseFloat(String(v.change).replace(/[^0-9.\-+]/g, ""));
+        var dir = isNaN(num) || num === 0 ? "" : (num > 0 ? " up" : " down");
+        return div({ className: "mkt", key: m.id },
+          div({ className: "nm" }, m.name, h("em", null, m.sym)),
+          input({
+            className: "px", inputMode: "decimal", value: v.price, placeholder: "—",
+            "aria-label": m.name + " price",
+            onChange: function (e) { edit(m.id, "price", e.target.value); }
+          }),
+          div({ className: "chg" + dir },
+            input({
+              inputMode: "decimal", value: v.change, placeholder: "—",
+              "aria-label": m.name + " percent change",
+              onChange: function (e) { edit(m.id, "change", e.target.value); }
+            })
+          )
+        );
+      }),
+      div({ className: "mktfoot" },
+        span({ className: "meta" },
+          dirty ? "Not saved yet" : staleness(props.data.updatedAt)),
+        button({ className: "btn" + (dirty ? " primary" : ""), disabled: !dirty, onClick: commit }, "Save prices")
+      )
+    );
+
+    return section({ className: "sec" },
+      h(Eyebrow, { title: "Markets" }),
+      button({
+        className: "disc", onClick: function () { setOpen(!open); },
+        "aria-expanded": open ? "true" : "false"
+      },
+        span({ className: "lbl" }, "Your positions"),
+        span({ style: { display: "flex", alignItems: "center", gap: ".625rem" } },
+          span({ className: "meta" }, dirty ? "Not saved yet" : staleness(props.data.updatedAt)),
+          span({ className: "chev" + (open ? " open" : "") }, icon(I_CHEV, 18))
+        )
+      ),
+      body
+    );
+  }
+
+  /* ---------- app ---------- */
+  function App() {
+    var s0 = useState(true), loading = s0[0], setLoading = s0[1];
+    var s1 = useState(null), warn = s1[0], setWarn = s1[1];
+    var s2 = useState(todayKey()), today = s2[0], setToday = s2[1];
+    var s3 = useState(function () { return blankTasks(todayKey()); }), tasks = s3[0], setTasksRaw = s3[1];
+    var s4 = useState(function () { return blankSchedule(todayKey()); }), sched = s4[0], setSchedRaw = s4[1];
+    var s5 = useState(blankHabits), habits = s5[0], setHabitsRaw = s5[1];
+    var s6 = useState(blankMarkets), markets = s6[0], setMarketsRaw = s6[1];
+    var s7 = useState(""), quick = s7[0], setQuick = s7[1];
+    var s8 = useState(false), dumping = s8[0], setDumping = s8[1];
+    var s9 = useState(""), evTime = s9[0], setEvTime = s9[1];
+    var s10 = useState(""), evTitle = s10[0], setEvTitle = s10[1];
+    var s11 = useState(false), armed = s11[0], setArmed = s11[1];
+    var s12 = useState(nowMinutes()), clock = s12[0], setClock = s12[1];
+
+    var setTasks = useCallback(function (v) { setTasksRaw(v); save("tasks", v); }, []);
+    var setSched = useCallback(function (v) { setSchedRaw(v); save("schedule", v); }, []);
+    var setHabits = useCallback(function (v) { setHabitsRaw(v); save("habits", v); }, []);
+    var setMarkets = useCallback(function (v) { setMarketsRaw(v); save("markets", v); }, []);
+
+    /* boot */
+    useEffect(function () {
+      var cancelled = false;
+      store.onError = function () {
+        setWarn("A change could not be saved just now. It is still on screen; it will save again on your next edit.");
+      };
+
+      (function boot() {
+        var got = (window.claude && typeof window.claude.use === "function")
+          ? window.claude.use("db")
+          : Promise.resolve(null);
+
+        got.catch(function () { return null; }).then(function (db) {
+          if (cancelled) return;
+          store.db = db;
+          if (!db) {
+            setWarn("Saved storage is not available in this view, so nothing here will persist. Everything still works for this session.");
+            setLoading(false);
+            return;
+          }
+          var day = todayKey();
+          return Promise.all([
+            readDoc("tasks", blankTasks(day)),
+            readDoc("schedule", blankSchedule(day)),
+            readDoc("habits", blankHabits()),
+            readDoc("markets", blankMarkets())
+          ]).then(function (res) {
+            if (cancelled) return;
+            var t = rollTasks(normTasks(res[0], day), day);
+            var sc = rollSchedule(normSched(res[1], day), day);
+            var hb = pruneHabits(normHabits(res[2]), day);
+            var mk = normMarkets(res[3]);
+            setToday(day);
+            setTasksRaw(t); setSchedRaw(sc); setHabitsRaw(hb); setMarketsRaw(mk);
+            store.ready = true;
+            setLoading(false);
+            if (!res[0] || res[0].day !== day) save("tasks", t);
+            if (!res[1] || res[1].day !== day) save("schedule", sc);
+          });
+        }).catch(function () {
+          if (cancelled) return;
+          setWarn("Your saved data could not be loaded. Nothing has been deleted. Reload to try again.");
+          store.ready = false;
+          setLoading(false);
+        });
+      })();
+
+      return function () { cancelled = true; };
+    }, []);
+
+    /* clock tick — drives "next" / "passed" on the schedule */
+    useEffect(function () {
+      function tick() { setClock(nowMinutes()); }
+      var id = setInterval(tick, 20000);
+      document.addEventListener("visibilitychange", tick);
+      window.addEventListener("focus", tick);
+      return function () {
+        clearInterval(id);
+        document.removeEventListener("visibilitychange", tick);
+        window.removeEventListener("focus", tick);
+      };
+    }, []);
+
+    /* midnight rollover — runs off the tick, with fresh state in hand */
+    useEffect(function () {
+      if (loading) return;
+      var now = todayKey();
+      if (now === today) return;
+      setToday(now);
+      var t = rollTasks(tasks, now);
+      var sc = rollSchedule(sched, now);
+      var hb = pruneHabits(habits, now);
+      setTasks(t); setSched(sc); setHabits(hb);
+    }, [clock, today, loading, tasks, sched, habits, setTasks, setSched, setHabits]);
+
+    /* ---- task actions ---- */
+    function addTasks(texts) {
+      var made = texts.map(function (t) { return { id: uid(), text: t, done: false, at: Date.now() }; });
+      setTasks({ day: tasks.day, top: tasks.top, list: tasks.list.concat(made), doneYesterday: tasks.doneYesterday });
+    }
+    function toggleTask(id) {
+      setTasks({
+        day: tasks.day, top: tasks.top, doneYesterday: tasks.doneYesterday,
+        list: tasks.list.map(function (t) { return t.id === id ? { id: t.id, text: t.text, done: !t.done, at: t.at } : t; })
+      });
+    }
+    function deleteTask(id) {
+      setTasks({
+        day: tasks.day, top: tasks.top, doneYesterday: tasks.doneYesterday,
+        list: tasks.list.filter(function (t) { return t.id !== id; })
+      });
+    }
+    function freeSlot() {
+      for (var i = 0; i < 3; i++) if (!tasks.top[i]) return i;
+      return -1;
+    }
+    function promote(id) {
+      var slot = freeSlot();
+      if (slot < 0) return;
+      var task = null;
+      var rest = tasks.list.filter(function (t) {
+        if (t.id === id) { task = t; return false; }
+        return true;
+      });
+      if (!task) return;
+      var top = tasks.top.slice();
+      top[slot] = task;
+      setTasks({ day: tasks.day, top: top, list: rest, doneYesterday: tasks.doneYesterday });
+    }
+    function demote(i) {
+      var slot = tasks.top[i];
+      if (!slot) return;
+      var top = tasks.top.slice();
+      top[i] = null;
+      setTasks({ day: tasks.day, top: top, list: tasks.list.concat([slot]), doneYesterday: tasks.doneYesterday });
+    }
+    function setSlot(i, text) {
+      var top = tasks.top.slice();
+      top[i] = { id: uid(), text: text, done: false, at: Date.now() };
+      setTasks({ day: tasks.day, top: top, list: tasks.list, doneYesterday: tasks.doneYesterday });
+    }
+    function toggleSlot(i) {
+      var top = tasks.top.slice();
+      var slot = top[i];
+      if (!slot) return;
+      top[i] = { id: slot.id, text: slot.text, done: !slot.done, at: slot.at };
+      setTasks({ day: tasks.day, top: top, list: tasks.list, doneYesterday: tasks.doneYesterday });
+    }
+
+    /* ---- schedule actions ---- */
+    function addEvent(e) {
+      e.preventDefault();
+      var title = evTitle.trim();
+      if (!evTime || !title) return;
+      var events = sched.events.concat([{ id: uid(), time: evTime, title: title }]);
+      events.sort(function (a, b) { return timeToMinutes(a.time) - timeToMinutes(b.time); });
+      setSched({ day: today, events: events });
+      setEvTime(""); setEvTitle("");
+    }
+    function deleteEvent(id) {
+      setSched({ day: today, events: sched.events.filter(function (ev) { return ev.id !== id; }) });
+    }
+
+    /* ---- habits ---- */
+    function toggleHabit(id) {
+      var days = {};
+      Object.keys(habits.days).forEach(function (k) { days[k] = habits.days[k]; });
+      var cur = {};
+      Object.keys(days[today] || {}).forEach(function (k) { cur[k] = days[today][k]; });
+      cur[id] = !cur[id];
+      days[today] = cur;
+      setHabits({ days: days });
+    }
+
+    /* ---- reset ---- */
+    function resetAll() {
+      var day = todayKey();
+      var t = blankTasks(day), sc = blankSchedule(day), hb = blankHabits(), mk = blankMarkets();
+      setTasks(t); setSched(sc); setHabits(hb); setMarkets(mk);
+      setArmed(false);
+      setWarn(null);
+    }
+
+    /* ---- derived ---- */
+    var ordered = useMemo(function () {
+      var undone = tasks.list.filter(function (t) { return !t.done; });
+      var done = tasks.list.filter(function (t) { return t.done; });
+      return undone.concat(done);
+    }, [tasks.list]);
+
+    var nextEventId = useMemo(function () {
+      for (var i = 0; i < sched.events.length; i++) {
+        if (timeToMinutes(sched.events[i].time) >= clock) return sched.events[i].id;
+      }
+      return null;
+    }, [sched.events, clock]);
+
+    var week = useMemo(function () {
+      var out = [];
+      for (var i = 6; i >= 0; i--) out.push(shiftKey(today, -i));
+      return out;
+    }, [today]);
+
+    if (loading) {
+      return div({ className: "loadwrap" },
+        div({ className: "skel" }, h("i", { className: "line", style: { height: "34px", width: "58%" } })),
+        div({ className: "skel" }, h("i", { className: "big" }), h("i", { className: "big" }), h("i", { className: "big" })),
+        div({ className: "skel" }, h("i", { className: "line" }), h("i", { className: "line" }), h("i", { className: "line" })),
+        span({ className: "sr" }, "Loading your dashboard")
+      );
+    }
+
+    var d = keyToDate(today);
+    var slotOpen = freeSlot() >= 0;
+
+    return h(React.Fragment, null,
+      div({ className: "page" },
+
+        header({ className: "head" },
+          span({ className: "wd" }, WD[d.getDay()]),
+          span({ className: "dt" }, nzDate(d))
+        ),
+
+        warn ? div({ className: "banner", role: "status" }, warn) : null,
+
+        section({ className: "sec" },
+          h(Eyebrow, { title: "Top 3 today" }),
+          h(TopThree, { top: tasks.top, onSet: setSlot, onToggle: toggleSlot, onDemote: demote })
+        ),
+
+        section({ className: "sec" },
+          h(Eyebrow, {
+            title: "Everything else",
+            hint: ordered.length ? ordered.filter(function (t) { return !t.done; }).length + " open" : null
+          }),
+          ordered.length === 0
+            ? p({ className: "empty-note" }, "Nothing else on the list. Add anything as it occurs to you.")
+            : div({ className: "tasks" }, ordered.map(function (t) {
+                return h(TaskRow, {
+                  key: t.id, task: t,
+                  canPromote: slotOpen && !t.done,
+                  onToggle: function () { toggleTask(t.id); },
+                  onDelete: function () { deleteTask(t.id); },
+                  onPromote: function () { promote(t.id); }
+                });
+              })),
+          tasks.doneYesterday > 0
+            ? p({ className: "tally" }, tasks.doneYesterday + (tasks.doneYesterday === 1 ? " task" : " tasks") + " done yesterday")
+            : null
+        ),
+
+        section({ className: "sec" },
+          h(Eyebrow, { title: "Today's schedule" }),
+          sched.events.length === 0
+            ? p({ className: "empty-note" }, "Nothing scheduled.")
+            : div(null, sched.events.map(function (ev) {
+                var past = timeToMinutes(ev.time) < clock;
+                var isNext = ev.id === nextEventId;
+                return div({ className: "evrow" + (past ? " past" : "") + (isNext ? " next" : ""), key: ev.id },
+                  span({ className: "t" }, ev.time),
+                  span({ className: "ti" }, ev.title,
+                    isNext ? span({ className: "nextpill" }, "Next") : null),
+                  button({
+                    className: "iconbtn", onClick: function () { deleteEvent(ev.id); },
+                    "aria-label": "Delete event: " + ev.title
+                  }, icon(I_X, 16))
+                );
+              })),
+          h("form", { className: "addrow", onSubmit: addEvent },
+            input({
+              className: "field time", type: "time", value: evTime,
+              "aria-label": "Event time",
+              onChange: function (e) { setEvTime(e.target.value); }
+            }),
+            input({
+              className: "field", value: evTitle, placeholder: "Event",
+              "aria-label": "Event title",
+              onChange: function (e) { setEvTitle(e.target.value); }
+            }),
+            button({
+              className: "btn", type: "submit", disabled: !evTime || !evTitle.trim(),
+              "aria-label": "Add event"
+            }, icon(I_PLUS, 18))
+          )
+        ),
+
+        section({ className: "sec" },
+          h(Eyebrow, { title: "Habits", hint: "Last 7 days" }),
+          div(null, HABITS.map(function (hab) {
+            var on = !!((habits.days[today] || {})[hab.id]);
+            return div({ className: "habit", key: hab.id },
+              button({
+                className: "tapzone", onClick: function () { toggleHabit(hab.id); },
+                "aria-pressed": on ? "true" : "false",
+                "aria-label": hab.name + " today"
+              },
+                h(Check, { on: on }),
+                span({ className: "name" }, hab.name, h("em", null, hab.sub))
+              ),
+              div({ className: "dots", role: "img", "aria-label": weekLabel(habits, week, hab) },
+                week.map(function (k, i) {
+                  var lit = !!((habits.days[k] || {})[hab.id]);
+                  return span({
+                    key: k,
+                    className: "dot" + (lit ? " on" : "") + (i === 6 ? " today" : "")
+                  });
+                })
+              )
+            );
+          }))
+        ),
+
+        h(Markets, {
+          data: markets,
+          onSave: function (items) { setMarkets({ items: items, updatedAt: new Date().toISOString() }); }
+        }),
+
+        footer({ className: "foot" },
+          p({ className: "note" },
+            "Everything here lives on this page only. Unfinished tasks carry over to tomorrow; finished ones clear at midnight."),
+          button({
+            className: "linkbtn" + (armed ? " armed" : ""),
+            onClick: function () { if (armed) { resetAll(); } else { setArmed(true); } },
+            onBlur: function () { setArmed(false); }
+          }, armed ? "Tap again to erase everything" : "Reset all data")
+        )
+      ),
+
+      div({ className: "composer" },
+        h("form", {
+          className: "inner",
+          onSubmit: function (e) {
+            e.preventDefault();
+            var t = quick.trim();
+            if (!t) return;
+            addTasks([t]);
+            setQuick("");
+          }
+        },
+          input({
+            className: "field", value: quick, placeholder: "Add a task",
+            "aria-label": "Add a task",
+            enterKeyHint: "done",
+            onChange: function (e) { setQuick(e.target.value); }
+          }),
+          button({ className: "btn", type: "button", onClick: function () { setDumping(true); } }, "Brain dump")
+        )
+      ),
+
+      dumping ? h(BrainDump, { onClose: function () { setDumping(false); }, onAdd: addTasks }) : null
+    );
+  }
+
+  function weekLabel(habits, week, hab) {
+    var n = week.filter(function (k) { return !!((habits.days[k] || {})[hab.id]); }).length;
+    return hab.name + ": " + n + " of the last 7 days";
+  }
+
+  /* ---------- normalisers (defensive against odd stored shapes) ---------- */
+  function normTasks(v, day) {
+    if (!v || typeof v !== "object") return blankTasks(day);
+    var top = Array.isArray(v.top) ? v.top.slice(0, 3) : [];
+    while (top.length < 3) top.push(null);
+    top = top.map(function (s) {
+      return s && typeof s === "object" && s.text
+        ? { id: s.id || uid(), text: String(s.text), done: !!s.done, at: s.at || Date.now() } : null;
+    });
+    var list = (Array.isArray(v.list) ? v.list : []).filter(function (t) {
+      return t && typeof t === "object" && t.text;
+    }).map(function (t) {
+      return { id: t.id || uid(), text: String(t.text), done: !!t.done, at: t.at || Date.now() };
+    });
+    return {
+      day: typeof v.day === "string" ? v.day : day,
+      top: top, list: list,
+      doneYesterday: typeof v.doneYesterday === "number" ? v.doneYesterday : 0
+    };
+  }
+  function normSched(v, day) {
+    if (!v || typeof v !== "object") return blankSchedule(day);
+    var events = (Array.isArray(v.events) ? v.events : []).filter(function (e) {
+      return e && typeof e === "object" && e.title;
+    }).map(function (e) {
+      return { id: e.id || uid(), time: String(e.time || "00:00"), title: String(e.title) };
+    });
+    events.sort(function (a, b) { return timeToMinutes(a.time) - timeToMinutes(b.time); });
+    return { day: typeof v.day === "string" ? v.day : day, events: events };
+  }
+  function normHabits(v) {
+    if (!v || typeof v !== "object" || !v.days || typeof v.days !== "object") return blankHabits();
+    return { days: v.days };
+  }
+  function normMarkets(v) {
+    if (!v || typeof v !== "object") return blankMarkets();
+    var items = {};
+    var src = v.items && typeof v.items === "object" ? v.items : {};
+    MARKETS.forEach(function (m) {
+      var row = src[m.id];
+      items[m.id] = {
+        price: row && row.price != null ? String(row.price) : "",
+        change: row && row.change != null ? String(row.change) : ""
+      };
+    });
+    return { items: items, updatedAt: typeof v.updatedAt === "string" ? v.updatedAt : null };
+  }
+
+  ReactDOM.createRoot(document.getElementById("root")).render(h(App));
+})();
+</script>
