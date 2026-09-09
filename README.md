@@ -65,6 +65,17 @@ previous days, and suggestions pulled up from other buckets when today is thin.
 Later opens that day go straight to the list; the brief stays reachable from
 the "Today's brief" link in the header.
 
+A timed task in `today` is treated as a **fixed point**: the brief lists those
+in clock order and plans around them, naming what to do before and after. A
+task dated today but filed in another bucket is surfaced each morning under
+**Dated today** as a suggestion to accept — it is never moved automatically.
+
+**Remind me 30 minutes before** builds a calendar event (`.ics`) with a
+30-minute alarm and hands it to the share sheet, falling back to a download.
+This is not Web Push: iOS Web Push needs a server holding VAPID keys to
+originate every message, and this app has no server. A calendar alert fires
+with the app closed, which a page-local timer cannot do.
+
 Tasks carry a `bucket` (`today` / `this_week` / `this_month` / `future`) and an
 `importance` (`must` / `should` / `nice`). Ordering is automatic and total —
 carry-ins oldest first, then importance, then age, then id — so the list never

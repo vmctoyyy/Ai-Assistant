@@ -247,13 +247,50 @@
       });
   }
 
+  /* ---------- the day's shape ----------
+     A timed task in `today` is a fixed point: the day bends around it.
+     Everything else in `today` is flexible and keeps the normal ranking. */
+  function isFixedToday(t, today) {
+    return t.bucket === "today" && isOpen(t) && !!validTime(t.dueTime) &&
+      (!t.dueDate || t.dueDate === today);
+  }
+  function fixedPoints(items, today) {
+    return items.filter(function (t) { return isFixedToday(t, today); })
+      .slice().sort(function (a, b) {
+        if (a.dueTime !== b.dueTime) return a.dueTime < b.dueTime ? -1 : 1;
+        return compareToday(today)(a, b);
+      });
+  }
+  function flexibleToday(items, today) {
+    return items.filter(function (t) {
+      return t.bucket === "today" && isOpen(t) && !isFixedToday(t, today);
+    }).slice().sort(compareToday(today));
+  }
+
   /* ---------- suggestions ---------- */
+  /* Tasks dated today but filed elsewhere. Surfaced every morning regardless
+     of how full today is — a dated thing is a fact about the day, not filler.
+     Never moved automatically; the user accepts them. */
+  function pickAnchored(items, today) {
+    return items.filter(function (t) {
+      return t.bucket !== "today" && isOpen(t) &&
+        t.dueDate === today && t.notTodayOn !== today;
+    }).slice().sort(function (a, b) {
+      var at = validTime(a.dueTime), bt = validTime(b.dueTime);
+      if (at && bt && at !== bt) return at < bt ? -1 : 1;
+      if (at && !bt) return -1;
+      if (bt && !at) return 1;
+      if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+      return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+    });
+  }
   function pickSuggestions(items, today) {
     var open = rankToday(items, today);
     if (open.length >= 3) return [];
     function from(bucket) {
       var pool = items.filter(function (t) {
-        return t.bucket === bucket && isOpen(t) && t.notTodayOn !== today;
+        return t.bucket === bucket && isOpen(t) && t.notTodayOn !== today &&
+          t.dueDate !== today;   /* dated today: shown as an anchor instead */
       });
       return ["must", "should"].reduce(function (acc, imp) {
         return acc.concat(pool.filter(function (t) { return t.importance === imp; })
@@ -313,6 +350,83 @@
     return out;
   }
 
+  /* The brief's opening advice. Returns segments so the UI can emphasise
+     titles: {t: "text"} is plain, {em: "title"} is the task name.
+     With no fixed points this is the original one-sentence start-here. */
+  function planLine(items, today) {
+    var fixed = fixedPoints(items, today);
+    if (!fixed.length) {
+      var s = startHere(rankToday(items, today), today);
+      return s ? { lead: [{ t: s.before }, { em: s.title }, { t: s.after }], advice: null } : null;
+    }
+    var lead;
+    if (fixed.length === 1) {
+      lead = [{ em: fixed[0].title },
+              { t: " at " + fixed[0].dueTime + " is your only fixed point today." }];
+    } else {
+      lead = [{ t: numberWord(fixed.length).replace(/^./, function (c) { return c.toUpperCase(); }) +
+                   " fixed points today: " }];
+      fixed.forEach(function (f, i) {
+        if (i) lead.push({ t: i === fixed.length - 1 ? " and " : ", " });
+        lead.push({ em: f.title });
+        lead.push({ t: " at " + f.dueTime });
+      });
+      lead.push({ t: "." });
+    }
+    var flex = flexibleToday(items, today);
+    var anchor = fixed.length === 1 ? "it" : "the first";
+    var advice;
+    if (!flex.length) {
+      advice = [{ t: "Nothing else on the list around " + (fixed.length === 1 ? "it" : "them") + "." }];
+    } else if (flex.length === 1) {
+      advice = [{ em: flex[0].title }, { t: " before " + anchor + "." }];
+    } else {
+      advice = [{ em: flex[0].title }, { t: " before " + anchor + ", " },
+                { em: flex[1].title }, { t: " after." }];
+    }
+    return { lead: lead, advice: advice };
+  }
+
+  /* ---------- calendar export ----------
+     A static site has no push server, so a reminder is a real calendar event
+     with a 30-minute alarm. Floating local time: 12:30 means 12:30 wherever
+     the phone is. */
+  function pad2(n) { return n < 10 ? "0" + n : String(n); }
+  function icsEscape(v) {
+    return String(v).replace(/\\/g, "\\\\").replace(/;/g, "\\;")
+      .replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+  }
+  function icsFold(line) {
+    if (line.length <= 75) return line;
+    var out = line.slice(0, 75), rest = line.slice(75);
+    while (rest.length > 74) { out += "\r\n " + rest.slice(0, 74); rest = rest.slice(74); }
+    return out + "\r\n " + rest;
+  }
+  function buildICS(task, today, nowMs) {
+    var time = validTime(task.dueTime);
+    if (!time) return null;
+    var date = validDate(task.dueDate) || today;
+    var d = new Date(typeof nowMs === "number" ? nowMs : Date.now());
+    var stamp = d.getUTCFullYear() + pad2(d.getUTCMonth() + 1) + pad2(d.getUTCDate()) + "T" +
+                pad2(d.getUTCHours()) + pad2(d.getUTCMinutes()) + pad2(d.getUTCSeconds()) + "Z";
+    var lines = [
+      "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Quiet Desk//EN", "CALSCALE:GREGORIAN",
+      "BEGIN:VEVENT",
+      "UID:" + task.id + "@quietdesk",
+      "DTSTAMP:" + stamp,
+      "DTSTART:" + date.replace(/-/g, "") + "T" + time.replace(":", "") + "00",
+      "DURATION:PT30M",
+      "SUMMARY:" + icsEscape(task.title)
+    ];
+    if (task.notes) lines.push("DESCRIPTION:" + icsEscape(task.notes));
+    lines = lines.concat([
+      "BEGIN:VALARM", "TRIGGER:-PT30M", "ACTION:DISPLAY",
+      "DESCRIPTION:" + icsEscape(task.title),
+      "END:VALARM", "END:VEVENT", "END:VCALENDAR"
+    ]);
+    return lines.map(icsFold).join("\r\n") + "\r\n";
+  }
+
   function allDoneLine(items, today) {
     var hadAny = items.some(function (t) {
       return t.bucket === "today" && t.completedAt && msToKey(t.completedAt) === today;
@@ -333,6 +447,8 @@
     isOpen: isOpen, isCarryIn: isCarryIn, compareToday: compareToday,
     rankToday: rankToday, inBucket: inBucket,
     pickSuggestions: pickSuggestions, pickStale: pickStale,
+    isFixedToday: isFixedToday, fixedPoints: fixedPoints, flexibleToday: flexibleToday,
+    pickAnchored: pickAnchored, planLine: planLine, buildICS: buildICS,
     greetingLine: greetingLine, startHere: startHere, allDoneLine: allDoneLine
   };
 });

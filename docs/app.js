@@ -314,6 +314,14 @@
     );
   }
 
+  function segs(list, cls) {
+    return list.map(function (seg, i) {
+      return seg.em !== undefined
+        ? span({ key: i, className: cls || "sh-title" }, seg.em)
+        : span({ key: i }, seg.t);
+    });
+  }
+
   /* ---------- task options ---------- */
   function TaskSheet(props) {
     var task = props.task;
@@ -374,7 +382,15 @@
         onDate || onTime
           ? span({ className: "fieldnote" },
               "Shown on the task. It stays in " + QD.BUCKET_LABEL[bucket].toLowerCase() + ".")
-          : null),
+          : null,
+        onTime ? div({ className: "remindrow" },
+          button({
+            className: "btn small", type: "button",
+            onClick: function () { props.onRemind({ dueDate: onDate ? date : null, dueTime: time }); }
+          }, "Remind me 30 minutes before"),
+          span({ className: "fieldnote" },
+            "Adds a calendar event with a 30-minute alert, so it reaches you with the app closed.")
+        ) : null),
 
       div({ className: "sheetfield" },
         span({ className: "fieldlabel" }, "Note"),
@@ -409,11 +425,16 @@
       });
     }, [items, today]);
     var suggestions = useMemo(function () { return QD.pickSuggestions(items, today); }, [items, today]);
+    var anchored = useMemo(function () { return QD.pickAnchored(items, today); }, [items, today]);
+    var fixed = useMemo(function () { return QD.fixedPoints(items, today); }, [items, today]);
+    var plan = useMemo(function () { return QD.planLine(items, today); }, [items, today]);
     var stale = useMemo(function () { return QD.pickStale(items, today, props.prefs); }, [items, today, props.prefs]);
 
-    var carryIns = ranked.filter(function (t) { return QD.isCarryIn(t, today); });
-    var rest = ranked.filter(function (t) { return !QD.isCarryIn(t, today); });
-    var start = QD.startHere(ranked, today);
+    var fixedIds = {};
+    fixed.forEach(function (t) { fixedIds[t.id] = true; });
+    var loose = ranked.filter(function (t) { return !fixedIds[t.id]; });
+    var carryIns = loose.filter(function (t) { return QD.isCarryIn(t, today); });
+    var rest = loose.filter(function (t) { return !QD.isCarryIn(t, today); });
     var d = QD.keyToDate(today);
 
     function row(t) {
@@ -434,20 +455,44 @@
         ? QD.allDoneLine(items, today)
         : QD.greetingLine(ranked.length)),
 
-      start ? p({ className: "starthere" },
-        start.before, span({ className: "sh-title" }, start.title), start.after) : null,
+      plan ? p({ className: "starthere" }, segs(plan.lead)) : null,
+      plan && plan.advice ? p({ className: "planadvice" }, segs(plan.advice)) : null,
+
+      fixed.length ? section({ className: "sec" },
+        h(Eyebrow, { title: fixed.length === 1 ? "Fixed point" : "Fixed points" }),
+        div({ className: "tasks" }, fixed.map(row))) : null,
 
       carryIns.length ? section({ className: "sec carrysec" },
         h(Eyebrow, { title: "Carried over" }),
         div({ className: "tasks" }, carryIns.map(row))) : null,
 
       rest.length ? section({ className: "sec" },
-        carryIns.length ? h(Eyebrow, { title: "The rest of today" }) : null,
+        carryIns.length || fixed.length ? h(Eyebrow, { title: "The rest of today" }) : null,
         div({ className: "tasks" }, rest.map(row))) : null,
 
       doneToday.length ? section({ className: "sec" },
         h(Eyebrow, { title: "Done today" }),
         div({ className: "tasks" }, doneToday.map(row))) : null,
+
+      anchored.length ? section({ className: "sec" },
+        h(Eyebrow, { title: "Dated today" }),
+        p({ className: "seclead" },
+          anchored.length === 1
+            ? "This is dated today but filed under " +
+              QD.BUCKET_LABEL[anchored[0].bucket].toLowerCase() + "."
+            : "These are dated today but filed elsewhere."),
+        anchored.map(function (t) {
+          var due = QD.dueLabel(t.dueDate, t.dueTime, today);
+          return div({ className: "suggest", key: t.id },
+            div({ className: "sg-title" },
+              t.importance === "must" ? span({ className: "mustdot" }) : null, t.title,
+              due ? span({ className: "duetag" }, due) : null),
+            div({ className: "sg-acts" },
+              button({ className: "btn small primary",
+                onClick: function () { props.onPromote(t.id); } }, "Add to today"),
+              button({ className: "btn small",
+                onClick: function () { props.onNotToday(t.id); } }, "Not today")));
+        })) : null,
 
       suggestions.length ? section({ className: "sec" },
         h(Eyebrow, { title: "Not on today's list yet" }),
@@ -740,6 +785,24 @@
       return function () { cancelled = true; };
     }, []);
 
+    /* The composer is fixed and changes height when its chips open, so the
+       page reserves exactly as much room as it currently needs. */
+    useEffect(function () {
+      var el = document.querySelector(".composer");
+      if (!el) return;
+      function sync() {
+        document.documentElement.style.setProperty("--composer-h", el.offsetHeight + "px");
+      }
+      sync();
+      var ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(sync) : null;
+      if (ro) ro.observe(el);
+      window.addEventListener("resize", sync);
+      return function () {
+        if (ro) ro.disconnect();
+        window.removeEventListener("resize", sync);
+      };
+    }, [loading, briefOpen]);
+
     /* clock tick */
     useEffect(function () {
       function tick() { setClock(nowMinutes()); }
@@ -837,6 +900,33 @@
       days[today] = cur;
       setHabits({ days: days });
     }
+    /* No push server exists for a static site, so a reminder is a real
+       calendar event with a 30-minute alarm — which fires with the app shut. */
+    function remind(task, when) {
+      var subject = QD.applyPatch(task, when, today);
+      var ics = QD.buildICS(subject, today);
+      if (!ics) return;
+      var name = (task.title || "reminder").toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "reminder";
+      var blob = new Blob([ics], { type: "text/calendar" });
+      try {
+        var file = new File([blob], name + ".ics", { type: "text/calendar" });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          navigator.share({ files: [file], title: task.title }).catch(function () {});
+          return;
+        }
+      } catch (e) { /* File unsupported: fall through to a download */ }
+      try {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url; a.download = name + ".ics";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+      } catch (e2) {
+        setWarn("This browser would not hand over the calendar file. Add the time to your calendar by hand.");
+      }
+    }
+
     function resetAll() {
       var day = todayKey();
       setTasks({ version: 2, items: [], doneYesterday: 0, lastRollOn: day });
@@ -920,7 +1010,8 @@
       key: editingTask.id, task: editingTask, today: today,
       onClose: function () { setEditingId(null); },
       onSave: function (changes) { patch(editingTask.id, changes); },
-      onDelete: function () { deleteTask(editingTask.id); }
+      onDelete: function () { deleteTask(editingTask.id); },
+      onRemind: function (when) { remind(editingTask, when); }
     }) : null;
 
     if (briefOpen) {

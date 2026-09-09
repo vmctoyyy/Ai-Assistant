@@ -109,7 +109,8 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 .page{
   max-width:var(--wrap);
   margin:0 auto;
-  padding:calc(1.75rem + env(safe-area-inset-top,0px)) 1.125rem calc(7.75rem + env(safe-area-inset-bottom,0px));
+  padding:calc(1.75rem + env(safe-area-inset-top,0px)) 1.125rem
+          calc(var(--composer-h, 5.5rem) + 2.25rem);
   display:flex;flex-direction:column;gap:2.75rem;
 }
 
@@ -323,6 +324,11 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 }
 .sh-title{font-style:italic}
 .seclead{margin:0 0 .25rem;font-size:.8125rem;color:var(--ink-3);line-height:1.5}
+.planadvice{
+  margin:-1.25rem 0 0;font-size:.9375rem;line-height:1.5;color:var(--ink-2);
+}
+.planadvice .sh-title{color:var(--ink);font-weight:500}
+.remindrow{display:flex;flex-direction:column;gap:.4375rem;padding-top:.375rem}
 .briefend{display:flex;justify-content:center;padding-top:.5rem}
 
 /* ---- carry-ins ---- */

@@ -21,7 +21,9 @@ function task(id, o) {
     completedAt: o.completedAt || null,
     firstTodayOn: o.firstTodayOn !== undefined ? o.firstTodayOn : (o.bucket && o.bucket !== "today" ? null : TODAY),
     notTodayOn: o.notTodayOn || null,
-    staleAskedOn: o.staleAskedOn || null
+    staleAskedOn: o.staleAskedOn || null,
+    dueDate: o.dueDate || null,
+    dueTime: o.dueTime || null
   }, TODAY);
 }
 var ids = function (a) { return a.map(function (x) { return x.id; }); };
@@ -313,6 +315,121 @@ t("says when a task was added, quietly", function () {
   assert.strictEqual(QD.addedLabel(ms("2026-09-06", 9), TODAY), "Added on Sunday");
   assert.strictEqual(QD.addedLabel(ms("2026-08-30", 9), TODAY), "Added 30 Aug");
   assert.strictEqual(QD.addedLabel(ms("2025-12-24", 9), TODAY), "Added 24 Dec 2025");
+});
+
+console.log("\nfixed points & the plan line");
+var render = function (seg) {
+  return seg.map(function (x) { return x.em !== undefined ? x.em : x.t; }).join("");
+};
+function coffeeDay(extra) {
+  return [
+    task("c", { title: "Coffee", dueDate: TODAY, dueTime: "12:30" }),
+    task("x", { title: "Renew car insurance", importance: "must", createdAt: ms(TODAY, 8) }),
+    task("y", { title: "Buy milk", createdAt: ms(TODAY, 9) })
+  ].concat(extra || []);
+}
+t("a timed today task becomes a fixed point, untimed ones stay flexible", function () {
+  var items = coffeeDay();
+  assert.deepStrictEqual(ids(QD.fixedPoints(items, TODAY)), ["c"]);
+  assert.deepStrictEqual(ids(QD.flexibleToday(items, TODAY)), ["x", "y"]);
+});
+t("the plan line names the appointment and what to do either side", function () {
+  var p = QD.planLine(coffeeDay(), TODAY);
+  assert.strictEqual(render(p.lead), "Coffee at 12:30 is your only fixed point today.");
+  assert.strictEqual(render(p.advice), "Renew car insurance before it, Buy milk after.");
+});
+t("fixed points sort by clock, not importance", function () {
+  var items = [
+    task("late", { title: "Gym", importance: "must", dueTime: "18:00" }),
+    task("early", { title: "Coffee", importance: "nice", dueTime: "08:00" })
+  ];
+  assert.deepStrictEqual(ids(QD.fixedPoints(items, TODAY)), ["early", "late"]);
+  assert.strictEqual(render(QD.planLine(items, TODAY).lead),
+    "Two fixed points today: Coffee at 08:00 and Gym at 18:00.");
+});
+t("one flexible task gets a before, none gets a plain statement", function () {
+  var one = [task("c", { title: "Coffee", dueTime: "12:30" }), task("x", { title: "Buy milk" })];
+  assert.strictEqual(render(QD.planLine(one, TODAY).advice), "Buy milk before it.");
+  var none = [task("c", { title: "Coffee", dueTime: "12:30" })];
+  assert.strictEqual(render(QD.planLine(none, TODAY).advice), "Nothing else on the list around it.");
+});
+t("with no fixed point the plan line is the old one-sentence start-here", function () {
+  var p = QD.planLine([task("a", { title: "Buy milk", importance: "must" })], TODAY);
+  assert.strictEqual(render(p.lead), "Start with Buy milk — it is the only must-do today.");
+  assert.strictEqual(p.advice, null);
+});
+t("a task timed for a future date is not today's fixed point", function () {
+  var items = [task("c", { title: "Coffee", dueDate: "2026-09-12", dueTime: "12:30" })];
+  assert.deepStrictEqual(QD.fixedPoints(items, TODAY), []);
+  assert.deepStrictEqual(ids(QD.flexibleToday(items, TODAY)), ["c"]);
+});
+t("plan-line copy stays calm: no exclamations, at most two sentences", function () {
+  [coffeeDay(), [task("c", { title: "Coffee", dueTime: "12:30" })],
+   [task("c", { dueTime: "08:00" }), task("d", { dueTime: "18:00" }), task("e")],
+   [task("a", { importance: "must" })], []].forEach(function (items) {
+    var p = QD.planLine(items, TODAY);
+    if (!p) return;
+    var line = render(p.lead) + (p.advice ? " " + render(p.advice) : "");
+    assert.ok(line.indexOf("!") === -1, "exclamation: " + line);
+    assert.ok(line.match(/\./g).length <= 2, "too many sentences: " + line);
+  });
+});
+
+console.log("\nanchored suggestions");
+t("a task dated today but filed elsewhere is surfaced as an anchor", function () {
+  var items = [task("w", { title: "Coffee", bucket: "this_week", dueDate: TODAY, dueTime: "12:30" })];
+  assert.deepStrictEqual(ids(QD.pickAnchored(items, TODAY)), ["w"]);
+});
+t("anchors show even when today is already full", function () {
+  var items = coffeeDay([task("w", { bucket: "this_week", dueDate: TODAY })]);
+  assert.deepStrictEqual(QD.pickSuggestions(items, TODAY), [], "ordinary suggestions stay quiet");
+  assert.deepStrictEqual(ids(QD.pickAnchored(items, TODAY)), ["w"]);
+});
+t("an anchor is never counted twice as an ordinary suggestion", function () {
+  var items = [task("w", { bucket: "this_week", dueDate: TODAY })];
+  assert.deepStrictEqual(QD.pickSuggestions(items, TODAY), []);
+  assert.deepStrictEqual(ids(QD.pickAnchored(items, TODAY)), ["w"]);
+});
+t('"Not today" silences an anchor for that day only', function () {
+  var items = [task("w", { bucket: "this_week", dueDate: TODAY, notTodayOn: TODAY })];
+  assert.deepStrictEqual(QD.pickAnchored(items, TODAY), []);
+});
+t("anchors order by time, untimed last", function () {
+  var items = [
+    task("b", { bucket: "this_week", dueDate: TODAY }),
+    task("a", { bucket: "this_month", dueDate: TODAY, dueTime: "09:00" })
+  ];
+  assert.deepStrictEqual(ids(QD.pickAnchored(items, TODAY)), ["a", "b"]);
+});
+t("nothing is moved automatically — the bucket is untouched", function () {
+  var items = [task("w", { bucket: "this_week", dueDate: TODAY })];
+  QD.pickAnchored(items, TODAY);
+  assert.strictEqual(items[0].bucket, "this_week");
+  assert.deepStrictEqual(QD.rankToday(items, TODAY), []);
+});
+
+console.log("\ncalendar reminder");
+t("builds a valid event with a 30-minute alarm", function () {
+  var c = task("c", { title: "Coffee", dueDate: "2026-09-12", dueTime: "12:30" });
+  var ics = QD.buildICS(c, TODAY, Date.UTC(2026, 8, 9, 20, 0, 0));
+  ["BEGIN:VCALENDAR", "BEGIN:VEVENT", "DTSTART:20260912T123000", "SUMMARY:Coffee",
+   "BEGIN:VALARM", "TRIGGER:-PT30M", "END:VCALENDAR"].forEach(function (frag) {
+    assert.ok(ics.indexOf(frag) !== -1, "missing " + frag);
+  });
+  assert.ok(/\r\n/.test(ics), "must use CRLF line endings");
+  assert.ok(ics.indexOf("DTSTART:20260912T123000Z") === -1, "must be floating local time");
+});
+t("falls back to today when only a time is set", function () {
+  var c = task("c", { title: "Coffee", dueTime: "07:15" });
+  assert.ok(QD.buildICS(c, TODAY, 0).indexOf("DTSTART:20260909T071500") !== -1);
+});
+t("no time means no reminder to build", function () {
+  assert.strictEqual(QD.buildICS(task("c", { title: "Coffee" }), TODAY, 0), null);
+});
+t("escapes characters that would corrupt the file", function () {
+  var c = task("c", { title: "Coffee, then tax; admin", dueTime: "09:00", notes: "line" });
+  var ics = QD.buildICS(c, TODAY, 0);
+  assert.ok(ics.indexOf("SUMMARY:Coffee\\, then tax\\; admin") !== -1, ics);
 });
 
 console.log("\nsinceLabel");
