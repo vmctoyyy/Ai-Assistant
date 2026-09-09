@@ -244,6 +244,19 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
   padding:.625rem 1.125rem calc(.625rem + env(safe-area-inset-bottom,0px));
 }
 .composer .inner{max-width:var(--wrap);margin:0 auto;display:flex;gap:.5rem;align-items:center}
+.composer .btn{flex:none;padding-left:.875rem;padding-right:.875rem}
+/* A faded solid reads as broken. Empty input just means "not yet". */
+.composer .btn.primary:disabled{
+  background:transparent;border-color:var(--line-2);color:var(--ink-3);opacity:1;
+}
+.composer .field{flex:1 1 auto;min-width:0}
+/* On the narrowest phones the three controls stop fitting side by side,
+   so the input takes its own row and the buttons share the one below. */
+@media (max-width:23rem){
+  .composer .inner{flex-wrap:wrap}
+  .composer .field{flex:1 0 100%}
+  .composer .dumpbtn{margin-right:auto}
+}
 
 /* sheets */
 .scrim{position:fixed;inset:0;z-index:40;background:rgba(12,16,14,.42);display:flex;align-items:flex-end;justify-content:center}

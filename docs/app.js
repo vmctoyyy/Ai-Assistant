@@ -1012,6 +1012,8 @@
           if (!t) return;
           addTasks([t], addBucket, addImp);
           setQuick(""); setAddBucket("today"); setAddImp("should");
+          var el = e.currentTarget.querySelector("input");
+          if (el) el.focus();
         }
       },
         input({
@@ -1030,7 +1032,17 @@
           },
           onChange: function (e) { setQuick(e.target.value); }
         }),
-        button({ className: "btn", type: "button", onClick: function () { setDumping(true); } }, "Brain dump")));
+        button({
+          className: "btn primary addbtn", type: "submit", disabled: !quick.trim(),
+          /* Hold focus so the keyboard stays up for the next task. */
+          onMouseDown: function (e) { e.preventDefault(); },
+          "aria-label": "Add task"
+        }, "Add"),
+        button({
+          className: "btn dumpbtn", type: "button",
+          onMouseDown: function (e) { e.preventDefault(); },
+          onClick: function () { setDumping(true); }
+        }, "Brain dump")));
 
     var editingTask = editingId
       ? tasks.items.filter(function (t) { return t.id === editingId; })[0] : null;

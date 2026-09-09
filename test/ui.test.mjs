@@ -57,6 +57,36 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   check('chips reset to defaults after add',
     await pg.locator('.compchips').count() === 0 || await pg.locator('.compchips .chip.on', { hasText: 'Today' }).count() === 1);
 
+  console.log('-- composer: the Add button --');
+  check('Add is disabled while the input is empty', await pg.locator('.addbtn').isDisabled());
+  const legible = await pg.evaluate(() => {
+    const b = document.querySelector('.addbtn');
+    const cs = getComputedStyle(b);
+    return { opacity: parseFloat(cs.opacity), colour: cs.color, bg: cs.backgroundColor };
+  });
+  check('disabled Add stays legible (not a faded solid)', legible.opacity === 1, `opacity ${legible.opacity}`);
+  await pg.locator('.composer input').tap();
+  await pg.locator('.composer input').fill('Ring the plumber');
+  await pg.waitForTimeout(200);
+  check('Add enables once there is text', !(await pg.locator('.addbtn').isDisabled()));
+  await pg.locator('.addbtn').tap();
+  await pg.waitForTimeout(400);
+  const added = await items();
+  check('Add button adds the task', !!added.find(x => x.title === 'Ring the plumber'));
+  check('Add clears the input', (await pg.locator('.composer input').inputValue()) === '');
+  check('Add keeps focus for the next task',
+    await pg.evaluate(() => document.activeElement && document.activeElement.getAttribute('aria-label') === 'Add a task'));
+  check('composer never overflows its own width', await pg.evaluate(() => {
+    const c = document.querySelector('.composer').getBoundingClientRect();
+    return [...document.querySelectorAll('.composer .inner > *')]
+      .every(el => Math.round(el.getBoundingClientRect().right) <= Math.round(c.right) + 1);
+  }));
+  // tidy up so later checks start from a known state
+  for (const t of added) {
+    await pg.locator(`button[aria-label="Delete: ${t.title}"]`).first().tap().catch(() => {});
+    await pg.waitForTimeout(150);
+  }
+
   console.log('-- sheet: every control by tap --');
   await pg.getByRole('button', { name: 'Go to the full list' }).tap();
   await pg.waitForTimeout(250);
