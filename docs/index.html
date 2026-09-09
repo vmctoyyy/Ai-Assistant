@@ -164,8 +164,16 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 .rowwrap.sliding::after{opacity:1}
 .row{
   position:relative;background:var(--ground);
-  display:flex;align-items:center;gap:.75rem;
+  display:flex;align-items:center;gap:.25rem;
   padding:.5rem 0;border-bottom:1px solid var(--line);touch-action:pan-y;
+}
+.tickbtn{
+  flex:none;display:grid;place-items:center;
+  min-width:46px;min-height:var(--tap);
+}
+.rowbody{
+  flex:1;min-width:0;display:flex;align-items:center;
+  text-align:left;min-height:var(--tap);padding-right:.25rem;
 }
 .row .txt{font-size:1rem;line-height:1.35;overflow-wrap:anywhere}
 .row.done .txt{color:var(--ink-3);text-decoration:line-through;text-decoration-thickness:1px}

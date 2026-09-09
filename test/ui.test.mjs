@@ -172,19 +172,59 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   await expand(pg, 'This week');
   check('task shows in This week', await weekSec.locator('.row .txt').count() === 1,
     JSON.stringify(await weekSec.locator('.row .txt').allInnerTexts()));
-  await weekSec.locator('.row .tapzone').first().tap();
+  await weekSec.locator('.row .tickbtn').first().tap();
   await pg.waitForTimeout(400);
   check('ticked task is STILL on screen', await weekSec.locator('.row').count() === 1);
   check('ticked task is struck through', await weekSec.locator('.row.done').count() === 1);
   check('header reads all done, not empty',
     (await weekSec.locator('.meta').innerText()) === 'all done',
     await weekSec.locator('.meta').innerText());
-  await weekSec.locator('.row .tapzone').first().tap();
+  await weekSec.locator('.row .tickbtn').first().tap();
   await pg.waitForTimeout(400);
   check('tapping again brings it back', await weekSec.locator('.row.done').count() === 0);
+  check('the title is NOT a tick target', await weekSec.locator('.rowbody').getAttribute('aria-label') !== null
+    && (await weekSec.locator('.rowbody').getAttribute('aria-label')).startsWith('Options for'));
+  await weekSec.locator('.rowbody').first().tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  check('tapping the title opens options instead of ticking', await pg.locator('.sheet h2').innerText() === 'Task options');
+  check('and it did not tick anything off', await weekSec.locator('.row.done').count() === 0);
+  await pg.getByRole('button', { name: 'Cancel' }).tap();
+  await pg.waitForTimeout(250);
   check('header counts it again', (await weekSec.locator('.meta').innerText()) === '1');
   await weekSec.locator('button[aria-label^="Delete:"]').first().tap();
   await pg.waitForTimeout(300);
+
+  console.log('-- swipe to delete --');
+  await pg.locator('.composer input').fill('Swipe me away');
+  await pg.locator('.addbtn').tap();
+  await pg.waitForTimeout(300);
+  const swipeRow = pg.locator('.row').filter({ hasText: 'Swipe me away' });
+  const sb = await swipeRow.boundingBox();
+  const sy = sb.y + sb.height / 2;
+  await pg.mouse.move(sb.x + sb.width * 0.55, sy);
+  await pg.mouse.down();
+  for (let i = 1; i <= 12; i++) await pg.mouse.move(sb.x + sb.width * 0.55 - i * 12, sy);
+  await pg.mouse.up();
+  await pg.waitForTimeout(450);
+  check('a full swipe deletes the row',
+    !(await items()).find(x => x.title === 'Swipe me away'));
+  await pg.locator('.composer input').fill('Short drag');
+  await pg.locator('.addbtn').tap();
+  await pg.waitForTimeout(300);
+  const dragRow = pg.locator('.row').filter({ hasText: 'Short drag' });
+  const db = await dragRow.boundingBox();
+  await pg.mouse.move(db.x + db.width * 0.55, db.y + db.height / 2);
+  await pg.mouse.down();
+  await pg.mouse.move(db.x + db.width * 0.55 - 20, db.y + db.height / 2);
+  await pg.mouse.up();
+  await pg.waitForTimeout(350);
+  check('a short drag deletes nothing', !!(await items()).find(x => x.title === 'Short drag'));
+  check('a short drag opens no sheet', await pg.locator('.sheet').count() === 0);
+  check('a short drag ticks nothing', await pg.locator('.row.done').count() === 0);
+  for (const t of await items()) {
+    await pg.locator(`button[aria-label="Delete: ${t.title}"]`).first().tap().catch(() => {});
+    await pg.waitForTimeout(150);
+  }
 
   console.log('-- brain dump & backup --');
   await pg.locator('.composer .btn', { hasText: 'Brain dump' }).tap();

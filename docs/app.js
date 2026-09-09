@@ -261,7 +261,9 @@
 
     function down(e) {
       if (e.pointerType === "mouse" && e.button !== 0) return;
-      if (e.target.closest("button")) return;
+      /* Guarding on "button" made the swipe unreachable — the tap targets are
+         buttons and cover the row. Only the icon button opts out. */
+      if (e.target.closest(".iconbtn")) return;
       start.current = e.clientX; moved.current = false; dragging.current = true;
       try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
     }
@@ -278,9 +280,13 @@
       if (offRef.current < -80) { props.onDelete(); return; }
       offRef.current = 0; setOffset(0);
     }
-    function toggle() {
+    function tick() {
       if (moved.current) { moved.current = false; return; }
       props.onToggle();
+    }
+    function openOptions() {
+      if (moved.current) { moved.current = false; return; }
+      props.onOptions();
     }
 
     return div({ className: "rowwrap" + (offset < -8 ? " sliding" : "") },
@@ -292,12 +298,18 @@
         },
         onPointerDown: down, onPointerMove: move, onPointerUp: up, onPointerCancel: up
       },
+        /* Only the circle completes a task. The rest of the row opens its
+           options, so a stray tap on the title cannot tick anything off. */
         button({
-          className: "tapzone", onClick: toggle,
+          className: "tickbtn", onClick: tick,
           "aria-pressed": done ? "true" : "false",
           "aria-label": (done ? "Mark not done: " : "Mark done: ") + task.title
+        }, h(Check, { on: done })),
+        button({
+          className: "rowbody", onClick: openOptions,
+          "aria-haspopup": "dialog",
+          "aria-label": "Options for " + task.title
         },
-          h(Check, { on: done }),
           span({ className: "txt" },
             task.importance === "must" && !done
               ? span({ className: "mustdot", title: "Must-do", "aria-label": "Must-do" }) : null,
@@ -305,11 +317,6 @@
             due ? span({ className: "duetag" }, due) : null,
             carry ? span({ className: "carrytag" }, "since " + QD.sinceLabel(task.firstTodayOn, today)) : null,
             task.notes ? span({ className: "notes" }, task.notes) : null)),
-        button({
-          className: "iconbtn", onClick: props.onOptions,
-          "aria-haspopup": "dialog",
-          "aria-label": "Options for " + task.title
-        }, icon(I_DOTS, 18)),
         button({
           className: "iconbtn", onClick: props.onDelete,
           "aria-label": "Delete: " + task.title

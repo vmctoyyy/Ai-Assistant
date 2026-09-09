@@ -62,6 +62,10 @@ Report the merge in the summary; do not ask permission for it.
   guess. Month and weekday patterns are spelled out in full so "Monitor" is
   not read as Monday and "Separate" as September. The sheet shows a preview
   with the date spelled out before anything is saved; do not remove it.
+- **Only the check circle completes a task.** Tapping the title opens the
+  options sheet. A stray tap on a wide row must never tick something off, so
+  do not put `onToggle` back on the row body. The `.tickbtn` / `.rowbody`
+  split is what the tests target.
 - **Ticking a task off never removes it from view.** Completed tasks stay on
   screen, struck through, in every bucket until the midnight rollover clears
   them — an accidental tap must be undoable by tapping again. `inBucket` is
@@ -96,6 +100,11 @@ build to the user's phone:
   tap landed.
 - **Tap chips BEFORE typing.** Tests that typed first kept the chip row open
   and hid the bug entirely. The empty-input path is the one people use.
+
+Watch for guards that disable a gesture wholesale: `if (e.target.closest("button"))`
+in the swipe handler made swipe-to-delete unreachable for months, because the
+row's tap targets are themselves buttons. Scope such guards to the specific
+control (`.iconbtn`), not to a tag name.
 
 Also: `env(safe-area-inset-*)` is `0` in Chromium but ~34px on a real iPhone,
 so anything positioned against it is untested by default. Prefer layouts that
