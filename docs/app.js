@@ -241,7 +241,6 @@
     var task = props.task, today = props.today;
     var start = useRef(0), moved = useRef(false), dragging = useRef(false), offRef = useRef(0);
     var st = useState(0), offset = st[0], setOffset = st[1];
-    var st2 = useState(false), open = st2[0], setOpen = st2[1];
     var done = !!task.completedAt;
     var carry = QD.isCarryIn(task, today);
 
@@ -290,27 +289,76 @@
             task.title,
             carry ? span({ className: "carrytag" }, "since " + QD.sinceLabel(task.firstTodayOn, today)) : null,
             task.notes ? span({ className: "notes" }, task.notes) : null)),
-        props.editable !== false ? button({
-          className: "iconbtn" + (open ? " on" : ""), onClick: function () { setOpen(!open); },
-          "aria-expanded": open ? "true" : "false",
-          "aria-label": "Change bucket or importance: " + task.title
-        }, icon(I_DOTS, 18)) : null,
+        button({
+          className: "iconbtn", onClick: props.onOptions,
+          "aria-haspopup": "dialog",
+          "aria-label": "Options for " + task.title
+        }, icon(I_DOTS, 18)),
         button({
           className: "iconbtn", onClick: props.onDelete,
           "aria-label": "Delete: " + task.title
         }, icon(I_X, 17))
-      ),
-      open ? div({ className: "rowedit" },
-        h(Chips, {
-          label: "Bucket", options: BUCKET_OPTS, value: task.bucket,
-          onChange: function (v) { props.onPatch({ bucket: v }); }
-        }),
-        h(Chips, {
-          label: "Importance", options: IMP_OPTS, value: task.importance,
-          onChange: function (v) { props.onPatch({ importance: v }); }
-        })
-      ) : null
+      )
     );
+  }
+
+  /* ---------- task options ---------- */
+  function TaskSheet(props) {
+    var task = props.task;
+    var s1 = useState(task.title), title = s1[0], setTitle = s1[1];
+    var s2 = useState(task.bucket), bucket = s2[0], setBucket = s2[1];
+    var s3 = useState(task.importance), imp = s3[0], setImp = s3[1];
+    var s4 = useState(task.notes || ""), notes = s4[0], setNotes = s4[1];
+    var s5 = useState(false), armed = s5[0], setArmed = s5[1];
+    var clean = title.trim();
+
+    function save() {
+      if (!clean) return;
+      props.onSave({ title: clean, bucket: bucket, importance: imp, notes: notes.trim() });
+      props.onClose();
+    }
+
+    return h(Sheet, { title: "Task options", onClose: props.onClose },
+      div({ className: "sheetfield" },
+        span({ className: "fieldlabel" }, "Name"),
+        input({
+          className: "field", value: title, "aria-label": "Task name",
+          enterKeyHint: "done", spellCheck: true,
+          onChange: function (e) { setTitle(e.target.value); },
+          onKeyDown: function (e) { if (e.key === "Enter") { e.preventDefault(); save(); } }
+        }),
+        clean ? null : span({ className: "fieldnote" }, "A task needs a name.")),
+
+      div({ className: "sheetfield" },
+        span({ className: "fieldlabel" }, "Importance"),
+        h(Chips, { label: "Importance", options: IMP_OPTS, value: imp, onChange: setImp })),
+
+      div({ className: "sheetfield" },
+        span({ className: "fieldlabel" }, "When"),
+        h(Chips, { label: "Bucket", options: BUCKET_OPTS, value: bucket, onChange: setBucket }),
+        bucket !== task.bucket && bucket !== "today"
+          ? span({ className: "fieldnote" }, "Moves off today's list.")
+          : null),
+
+      div({ className: "sheetfield" },
+        span({ className: "fieldlabel" }, "Note"),
+        input({
+          className: "field", value: notes, placeholder: "Optional",
+          "aria-label": "Note", enterKeyHint: "done",
+          onChange: function (e) { setNotes(e.target.value); }
+        })),
+
+      div({ className: "sheetfoot spread" },
+        button({
+          className: "linkbtn danger" + (armed ? " armed" : ""),
+          onClick: function () {
+            if (armed) { props.onDelete(); props.onClose(); } else { setArmed(true); }
+          },
+          onBlur: function () { setArmed(false); }
+        }, armed ? "Tap again to delete" : "Delete"),
+        div({ style: { display: "flex", gap: ".5rem" } },
+          button({ className: "btn", onClick: props.onClose }, "Cancel"),
+          button({ className: "btn primary", disabled: !clean, onClick: save }, "Save"))));
   }
 
   /* ---------- morning brief ---------- */
@@ -332,10 +380,10 @@
 
     function row(t) {
       return h(TaskRow, {
-        key: t.id, task: t, today: today, editable: false,
+        key: t.id, task: t, today: today,
         onToggle: function () { props.onToggle(t.id); },
         onDelete: function () { props.onDelete(t.id); },
-        onPatch: function (patch) { props.onPatch(t.id, patch); }
+        onOptions: function () { props.onOptions(t.id); }
       });
     }
 
@@ -560,7 +608,7 @@
               key: t.id, task: t, today: props.today,
               onToggle: function () { props.onToggle(t.id); },
               onDelete: function () { props.onDelete(t.id); },
-              onPatch: function (patch) { props.onPatch(t.id, patch); }
+              onOptions: function () { props.onOptions(t.id); }
             });
           }))
         : null);
@@ -588,6 +636,7 @@
     var s16 = useState(false), armed = s16[0], setArmed = s16[1];
     var s17 = useState(nowMinutes()), clock = s17[0], setClock = s17[1];
     var s18 = useState(false), briefOpen = s18[0], setBriefOpen = s18[1];
+    var s19 = useState(null), editingId = s19[0], setEditingId = s19[1];
 
     var setTasks   = useCallback(function (v) { setTasksRaw(v);   save("tasks", v); }, []);
     var setSched   = useCallback(function (v) { setSchedRaw(v);   save("schedule", v); }, []);
@@ -688,12 +737,7 @@
     }
     function patch(id, changes) {
       commit(tasks.items.map(function (t) {
-        if (t.id !== id) return t;
-        var next = Object.assign({}, t, changes, { updatedAt: Date.now() });
-        /* entering today for the first time starts its carry-in clock */
-        if (changes.bucket === "today" && !t.firstTodayOn) next.firstTodayOn = today;
-        if (changes.bucket && changes.bucket !== "today") next.notTodayOn = null;
-        return next;
+        return t.id === id ? QD.applyPatch(t, changes, today) : t;
       }));
     }
     function addTasks(titles, bucket, importance) {
@@ -832,17 +876,27 @@
         }),
         button({ className: "btn", type: "button", onClick: function () { setDumping(true); } }, "Brain dump")));
 
+    var editingTask = editingId
+      ? tasks.items.filter(function (t) { return t.id === editingId; })[0] : null;
+    var taskSheet = editingTask ? h(TaskSheet, {
+      key: editingTask.id, task: editingTask,
+      onClose: function () { setEditingId(null); },
+      onSave: function (changes) { patch(editingTask.id, changes); },
+      onDelete: function () { deleteTask(editingTask.id); }
+    }) : null;
+
     if (briefOpen) {
       return h(React.Fragment, null,
         h(Brief, {
           today: today, items: tasks.items, prefs: prefs,
-          onToggle: toggleTask, onDelete: deleteTask, onPatch: patch,
+          onToggle: toggleTask, onDelete: deleteTask, onOptions: setEditingId,
           onPromote: promoteToToday, onNotToday: notToday, onStale: onStale,
           onClose: function () { setBriefOpen(false); }
         }),
         composer,
         dumping ? h(BrainDump, { onClose: function () { setDumping(false); },
-          onAdd: function (lines) { addTasks(lines, "today", "should"); } }) : null);
+          onAdd: function (lines) { addTasks(lines, "today", "should"); } }) : null,
+        taskSheet);
     }
 
     var d = QD.keyToDate(today);
@@ -872,7 +926,7 @@
                   key: t.id, task: t, today: today,
                   onToggle: function () { toggleTask(t.id); },
                   onDelete: function () { deleteTask(t.id); },
-                  onPatch: patch
+                  onOptions: function () { setEditingId(t.id); }
                 });
               })),
           tasks.doneYesterday > 0
@@ -884,7 +938,7 @@
           return h(BucketSection, {
             key: b, label: QD.BUCKET_LABEL[b], today: today,
             items: QD.inBucket(tasks.items, b),
-            onToggle: toggleTask, onDelete: deleteTask, onPatch: patch
+            onToggle: toggleTask, onDelete: deleteTask, onOptions: setEditingId
           });
         }),
 
@@ -942,7 +996,8 @@
       dumping ? h(BrainDump, { onClose: function () { setDumping(false); },
         onAdd: function (lines) { addTasks(lines, "today", "should"); } }) : null,
       backing ? h(Backup, { onClose: function () { setBacking(false); },
-        snapshot: snapshot, onRestore: restore }) : null);
+        snapshot: snapshot, onRestore: restore }) : null,
+      taskSheet);
   }
 
   ReactDOM.createRoot(document.getElementById("root")).render(h(App));

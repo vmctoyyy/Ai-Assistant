@@ -345,11 +345,13 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
   display:flex;flex-direction:column;gap:.375rem;
   max-width:var(--wrap);margin:0 auto .5rem;
 }
-.rowedit{
-  display:flex;flex-direction:column;gap:.5rem;
-  padding:.75rem 0 .875rem;border-bottom:1px solid var(--line);
+.sheetfield{display:flex;flex-direction:column;gap:.4375rem}
+.fieldlabel{
+  font-size:.6875rem;font-weight:600;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3);
 }
-.iconbtn.on{color:var(--accent);background:var(--accent-soft)}
+.fieldnote{font-size:.75rem;color:var(--ink-3)}
+.sheetfoot.spread{justify-content:space-between;align-items:center}
 
 /* ---- suggestions & stale prompt ---- */
 .suggest{

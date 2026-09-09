@@ -132,6 +132,23 @@
     };
   }
 
+  /* ---------- editing ----------
+     Bucket moves reset the carry-in clock: a task that leaves `today` and
+     comes back later is new to today, not something that has been waiting. */
+  function applyPatch(task, changes, today, now) {
+    var next = {};
+    Object.keys(task).forEach(function (k) { next[k] = task[k]; });
+    Object.keys(changes).forEach(function (k) { next[k] = changes[k]; });
+    if (changes.title !== undefined) next.title = String(changes.title);
+    if (changes.notes !== undefined) next.notes = changes.notes ? String(changes.notes) : "";
+    if (changes.bucket && changes.bucket !== task.bucket) {
+      next.notTodayOn = null;
+      next.firstTodayOn = changes.bucket === "today" ? today : null;
+    }
+    next.updatedAt = typeof now === "number" ? now : Date.now();
+    return next;
+  }
+
   /* ---------- day rollover ----------
      Buckets are never changed silently. Completed tasks clear; their count
      is reported once as "N done yesterday". */
@@ -262,6 +279,7 @@
     daysBetween: daysBetween, msToKey: msToKey, sinceLabel: sinceLabel,
     numberWord: numberWord, uid: uid,
     makeTask: makeTask, normTask: normTask, migrate: migrate, rollDay: rollDay,
+    applyPatch: applyPatch,
     isOpen: isOpen, isCarryIn: isCarryIn, compareToday: compareToday,
     rankToday: rankToday, inBucket: inBucket,
     pickSuggestions: pickSuggestions, pickStale: pickStale,

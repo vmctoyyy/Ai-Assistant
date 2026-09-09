@@ -151,6 +151,47 @@ t("empty and junk input give a valid empty state", function () {
   });
 });
 
+console.log("\nediting");
+t("renaming keeps everything else and bumps updatedAt", function () {
+  var a = task("a", { importance: "must", updatedAt: ms("2026-09-01") });
+  var b = QD.applyPatch(a, { title: "Renamed" }, TODAY, 999);
+  assert.strictEqual(b.title, "Renamed");
+  assert.strictEqual(b.importance, "must");
+  assert.strictEqual(b.bucket, "today");
+  assert.strictEqual(b.firstTodayOn, a.firstTodayOn);
+  assert.strictEqual(b.updatedAt, 999);
+});
+t("deprioritising re-ranks without touching the carry-in clock", function () {
+  var a = task("a", { importance: "must", firstTodayOn: "2026-09-05" });
+  var b = QD.applyPatch(a, { importance: "nice" }, TODAY, 999);
+  assert.strictEqual(b.importance, "nice");
+  assert.strictEqual(b.firstTodayOn, "2026-09-05");
+  assert.strictEqual(QD.isCarryIn(b, TODAY), true);
+});
+t("leaving today clears the carry-in clock", function () {
+  var a = task("a", { firstTodayOn: "2026-09-05" });
+  var b = QD.applyPatch(a, { bucket: "this_week" }, TODAY, 999);
+  assert.strictEqual(b.firstTodayOn, null);
+  assert.strictEqual(QD.isCarryIn(b, TODAY), false);
+});
+t("coming back to today is new, not an instant carry-in", function () {
+  var a = task("a", { bucket: "this_week", firstTodayOn: null });
+  var b = QD.applyPatch(a, { bucket: "today" }, TODAY, 999);
+  assert.strictEqual(b.firstTodayOn, TODAY);
+  assert.strictEqual(QD.isCarryIn(b, TODAY), false);
+});
+t("an old task promoted from this_week does not jump the queue", function () {
+  var older = task("promoted", { bucket: "this_week", createdAt: ms("2026-08-01") });
+  var carry = task("carry", { firstTodayOn: "2026-09-08" });
+  var items = [QD.applyPatch(older, { bucket: "today" }, TODAY, 999), carry];
+  assert.deepStrictEqual(ids(QD.rankToday(items, TODAY)), ["carry", "promoted"]);
+});
+t("staying in the same bucket leaves the clock alone", function () {
+  var a = task("a", { firstTodayOn: "2026-09-05" });
+  var b = QD.applyPatch(a, { bucket: "today", title: "Same bucket" }, TODAY, 999);
+  assert.strictEqual(b.firstTodayOn, "2026-09-05");
+});
+
 console.log("\nrollover");
 t("completed clear and are counted; buckets are never moved", function () {
   var state = { version: 2, lastRollOn: "2026-09-08", doneYesterday: 0, items: [

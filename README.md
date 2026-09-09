@@ -71,6 +71,11 @@ carry-ins oldest first, then importance, then age, then id — so the list never
 reshuffles between reloads on the same day. Buckets only ever change when the
 user changes them.
 
+Each task row has an options button that opens a sheet for renaming, changing
+importance, moving it to another bucket, adding a short note, or deleting it.
+Moving a task out of `today` and back later resets its carry-in clock, so a
+returning task is not mistaken for one that has been waiting all along.
+
 The ranking, suggestion, stale-check, migration and copy rules live in
 `docs/logic.js` with no DOM or storage dependencies, and are covered by
 `test/logic.test.js`:
