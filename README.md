@@ -13,7 +13,8 @@ The app lives in [`docs/`](docs/) and is a static site with no build step.
 ```
 docs/
   index.html              app shell, all styling
-  app.js                  the React app
+  app.js                  the React app (UI)
+  logic.js                task model, ranking, brief copy — pure, no DOM
   sw.js                   service worker (precaches everything for offline)
   manifest.webmanifest    name, icons, standalone display
   vendor/                 React 18 UMD builds, served same-origin
@@ -54,6 +55,29 @@ with no browser chrome, and works with no signal.
 Because the data lives only on the phone, deleting the app deletes the data.
 **Back up & restore** at the bottom of the page exports everything as JSON and
 takes it back again.
+
+### The morning brief
+
+On the first open of each local day the app shows a brief instead of the list:
+a greeting with the day's count, one "start here" sentence naming the
+top-ranked task and why it is first, the ranked list, any carry-ins from
+previous days, and suggestions pulled up from other buckets when today is thin.
+Later opens that day go straight to the list; the brief stays reachable from
+the "Today's brief" link in the header.
+
+Tasks carry a `bucket` (`today` / `this_week` / `this_month` / `future`) and an
+`importance` (`must` / `should` / `nice`). Ordering is automatic and total —
+carry-ins oldest first, then importance, then age, then id — so the list never
+reshuffles between reloads on the same day. Buckets only ever change when the
+user changes them.
+
+The ranking, suggestion, stale-check, migration and copy rules live in
+`docs/logic.js` with no DOM or storage dependencies, and are covered by
+`test/logic.test.js`:
+
+```
+node test/logic.test.js
+```
 
 ### Changing it
 

@@ -1,11 +1,12 @@
 /* Quiet Desk service worker — precache everything, serve cache-first.
    Bump CACHE when any asset below changes. */
-var CACHE = "quiet-desk-v1";
+var CACHE = "quiet-desk-v2";
 
 var ASSETS = [
   "./",
   "./index.html",
   "./app.js",
+  "./logic.js",
   "./manifest.webmanifest",
   "./vendor/react.js",
   "./vendor/react-dom.js",

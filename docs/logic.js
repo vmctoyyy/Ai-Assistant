@@ -1,0 +1,270 @@
+/* Quiet Desk — pure logic: task model, migration, ranking, brief copy.
+   No DOM, no storage. Loaded by the app as window.QD; required by tests. */
+(function (root, factory) {
+  var api = factory();
+  if (typeof module === "object" && module.exports) module.exports = api;
+  else root.QD = api;
+})(typeof self !== "undefined" ? self : this, function () {
+  "use strict";
+
+  var BUCKETS = ["today", "this_week", "this_month", "future"];
+  var BUCKET_LABEL = {
+    today: "Today", this_week: "This week", this_month: "This month", future: "Future"
+  };
+  var IMPORTANCE = ["must", "should", "nice"];
+  var IMPORTANCE_LABEL = { must: "Must", should: "Should", nice: "Nice" };
+  var IMP_ORDER = { must: 0, should: 1, nice: 2 };
+
+  var WD_FULL = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  var MO3 = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var WORDS = ["no","one","two","three","four","five","six","seven","eight","nine","ten"];
+
+  /* ---------- dates (all local, day boundary is local midnight) ---------- */
+  function dayKey(d) {
+    var m = d.getMonth() + 1, dd = d.getDate();
+    return d.getFullYear() + "-" + (m < 10 ? "0" + m : m) + "-" + (dd < 10 ? "0" + dd : dd);
+  }
+  function todayKey() { return dayKey(new Date()); }
+  function keyToDate(key) {
+    var b = String(key).split("-");
+    return new Date(+b[0], +b[1] - 1, +b[2]);
+  }
+  function shiftKey(key, delta) {
+    var d = keyToDate(key);
+    d.setDate(d.getDate() + delta);
+    return dayKey(d);
+  }
+  /* whole days from `from` to `to`; negative if `to` is earlier */
+  function daysBetween(from, to) {
+    var a = keyToDate(from), b = keyToDate(to);
+    return Math.round((b - a) / 86400000);
+  }
+  function msToKey(ms) { return dayKey(new Date(ms)); }
+
+  /* "yesterday" / "Monday" / "3 Sep" — how long a carry-in has been waiting */
+  function sinceLabel(fromKey, today) {
+    var n = daysBetween(fromKey, today);
+    if (n <= 0) return "today";
+    if (n === 1) return "yesterday";
+    if (n < 7) return WD_FULL[keyToDate(fromKey).getDay()];
+    var d = keyToDate(fromKey);
+    return d.getDate() + " " + MO3[d.getMonth()];
+  }
+  function numberWord(n) { return n >= 0 && n <= 10 ? WORDS[n] : String(n); }
+
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+  /* ---------- task shape ---------- */
+  function makeTask(title, opts) {
+    opts = opts || {};
+    var now = opts.now || Date.now();
+    var day = opts.today || msToKey(now);
+    var bucket = BUCKETS.indexOf(opts.bucket) >= 0 ? opts.bucket : "today";
+    return {
+      id: opts.id || uid(),
+      title: String(title),
+      bucket: bucket,
+      importance: IMPORTANCE.indexOf(opts.importance) >= 0 ? opts.importance : "should",
+      createdAt: now,
+      updatedAt: now,
+      completedAt: null,
+      notes: opts.notes ? String(opts.notes) : "",
+      firstTodayOn: bucket === "today" ? day : null,
+      notTodayOn: null,
+      staleAskedOn: null
+    };
+  }
+
+  function normTask(t, today) {
+    if (!t || typeof t !== "object") return null;
+    var title = t.title != null ? t.title : t.text;   /* v1 called it text */
+    if (!title) return null;
+    var created = typeof t.createdAt === "number" ? t.createdAt
+      : (typeof t.at === "number" ? t.at : Date.now());
+    var bucket = BUCKETS.indexOf(t.bucket) >= 0 ? t.bucket : "today";
+    return {
+      id: t.id || uid(),
+      title: String(title),
+      bucket: bucket,
+      importance: IMPORTANCE.indexOf(t.importance) >= 0 ? t.importance : "should",
+      createdAt: created,
+      updatedAt: typeof t.updatedAt === "number" ? t.updatedAt : created,
+      completedAt: typeof t.completedAt === "number" ? t.completedAt : (t.done ? created : null),
+      notes: t.notes ? String(t.notes) : "",
+      firstTodayOn: t.firstTodayOn || (bucket === "today" ? (today || msToKey(created)) : null),
+      notTodayOn: t.notTodayOn || null,
+      staleAskedOn: t.staleAskedOn || null
+    };
+  }
+
+  /* ---------- migration ----------
+     v1: { day, top:[slot|null x3], list:[{id,text,done,at}], doneYesterday }
+     Top 3 slots carried the user's priorities, so they become importance "must".
+     Everything else defaults to should / today, per spec. */
+  function migrate(raw, today) {
+    today = today || todayKey();
+    if (!raw || typeof raw !== "object") {
+      return { version: 2, items: [], doneYesterday: 0, lastRollOn: today };
+    }
+    if (raw.version === 2 && Array.isArray(raw.items)) {
+      return {
+        version: 2,
+        items: raw.items.map(function (t) { return normTask(t, today); }).filter(Boolean),
+        doneYesterday: typeof raw.doneYesterday === "number" ? raw.doneYesterday : 0,
+        lastRollOn: raw.lastRollOn || today
+      };
+    }
+    var day = typeof raw.day === "string" ? raw.day : today;
+    var items = [];
+    (Array.isArray(raw.top) ? raw.top : []).forEach(function (slot) {
+      if (!slot) return;
+      var t = normTask(slot, day);
+      if (t) { t.importance = "must"; t.bucket = "today"; t.firstTodayOn = day; items.push(t); }
+    });
+    (Array.isArray(raw.list) ? raw.list : []).forEach(function (row) {
+      var t = normTask(row, day);
+      if (t) { t.importance = "should"; t.bucket = "today"; t.firstTodayOn = day; items.push(t); }
+    });
+    return {
+      version: 2, items: items,
+      doneYesterday: typeof raw.doneYesterday === "number" ? raw.doneYesterday : 0,
+      lastRollOn: day
+    };
+  }
+
+  /* ---------- day rollover ----------
+     Buckets are never changed silently. Completed tasks clear; their count
+     is reported once as "N done yesterday". */
+  function rollDay(state, today) {
+    if (!state || state.lastRollOn === today) return state;
+    var done = state.items.filter(function (t) { return !!t.completedAt; });
+    return {
+      version: 2,
+      items: state.items.filter(function (t) { return !t.completedAt; }),
+      doneYesterday: done.length,
+      lastRollOn: today
+    };
+  }
+
+  /* ---------- ranking ---------- */
+  function isOpen(t) { return !t.completedAt; }
+  function isCarryIn(t, today) {
+    return t.bucket === "today" && isOpen(t) && !!t.firstTodayOn && t.firstTodayOn < today;
+  }
+  function impRank(t) {
+    var r = IMP_ORDER[t.importance];
+    return r === undefined ? 1 : r;
+  }
+  /* Deterministic: every comparison ends in a total order, so the list never
+     reshuffles between reloads on the same day. */
+  function compareToday(today) {
+    return function (a, b) {
+      var ca = isCarryIn(a, today), cb = isCarryIn(b, today);
+      if (ca !== cb) return ca ? -1 : 1;
+      if (ca && cb && a.firstTodayOn !== b.firstTodayOn) return a.firstTodayOn < b.firstTodayOn ? -1 : 1;
+      var ia = impRank(a), ib = impRank(b);
+      if (ia !== ib) return ia - ib;
+      if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+      return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+    };
+  }
+  function rankToday(items, today) {
+    return items.filter(function (t) { return t.bucket === "today" && isOpen(t); })
+                .slice().sort(compareToday(today));
+  }
+  function inBucket(items, bucket) {
+    return items.filter(function (t) { return t.bucket === bucket && isOpen(t); })
+      .slice().sort(function (a, b) {
+        var ia = impRank(a), ib = impRank(b);
+        if (ia !== ib) return ia - ib;
+        if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+        return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+      });
+  }
+
+  /* ---------- suggestions ---------- */
+  function pickSuggestions(items, today) {
+    var open = rankToday(items, today);
+    if (open.length >= 3) return [];
+    function from(bucket) {
+      var pool = items.filter(function (t) {
+        return t.bucket === bucket && isOpen(t) && t.notTodayOn !== today;
+      });
+      return ["must", "should"].reduce(function (acc, imp) {
+        return acc.concat(pool.filter(function (t) { return t.importance === imp; })
+          .sort(function (a, b) {
+            if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+            return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+          }));
+      }, []);
+    }
+    var out = from("this_week");
+    if (out.length === 0) out = from("this_month");
+    return out.slice(0, 3);
+  }
+
+  /* ---------- stale check: one this_week task, at most once a week ---------- */
+  function pickStale(items, today, prefs) {
+    prefs = prefs || {};
+    if (prefs.lastStaleAskOn && daysBetween(prefs.lastStaleAskOn, today) < 7) return null;
+    var candidates = items.filter(function (t) {
+      if (t.bucket !== "this_week" || !isOpen(t)) return false;
+      if (t.staleAskedOn && daysBetween(t.staleAskedOn, today) < 7) return false;
+      return daysBetween(msToKey(t.updatedAt || t.createdAt), today) >= 10;
+    }).sort(function (a, b) {
+      if (a.updatedAt !== b.updatedAt) return a.updatedAt - b.updatedAt;
+      return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+    });
+    return candidates.length ? candidates[0] : null;
+  }
+
+  /* ---------- brief copy ----------
+     Flat and factual. One sentence, no exclamation marks, no praise or blame. */
+  function greetingLine(count) {
+    if (count === 0) return "Nothing on today's list.";
+    return numberWord(count).replace(/^./, function (c) { return c.toUpperCase(); }) +
+      (count === 1 ? " thing on today." : " things on today.");
+  }
+
+  /* Returns {before, title, after} so the UI can emphasise the title. */
+  function startHere(ranked, today) {
+    if (!ranked.length) return null;
+    var top = ranked[0];
+    var out = { before: "Start with ", title: top.title, after: "" };
+    if (isCarryIn(top, today)) {
+      out.after = " — it has been on the list since " + sinceLabel(top.firstTodayOn, today) + ".";
+      return out;
+    }
+    var musts = ranked.filter(function (t) { return t.importance === "must"; });
+    if (top.importance === "must") {
+      out.after = musts.length === 1
+        ? " — it is the only must-do today."
+        : " — it is the first of " + numberWord(musts.length) + " must-dos.";
+      return out;
+    }
+    out.after = ranked.length === 1
+      ? " — it is the only thing on today's list."
+      : " — nothing today is marked must-do, so this is the oldest.";
+    return out;
+  }
+
+  function allDoneLine(items, today) {
+    var hadAny = items.some(function (t) {
+      return t.bucket === "today" && t.completedAt && msToKey(t.completedAt) === today;
+    });
+    return hadAny ? "Everything on today's list is done." : "Nothing on today's list.";
+  }
+
+  return {
+    BUCKETS: BUCKETS, BUCKET_LABEL: BUCKET_LABEL,
+    IMPORTANCE: IMPORTANCE, IMPORTANCE_LABEL: IMPORTANCE_LABEL,
+    dayKey: dayKey, todayKey: todayKey, keyToDate: keyToDate, shiftKey: shiftKey,
+    daysBetween: daysBetween, msToKey: msToKey, sinceLabel: sinceLabel,
+    numberWord: numberWord, uid: uid,
+    makeTask: makeTask, normTask: normTask, migrate: migrate, rollDay: rollDay,
+    isOpen: isOpen, isCarryIn: isCarryIn, compareToday: compareToday,
+    rankToday: rankToday, inBucket: inBucket,
+    pickSuggestions: pickSuggestions, pickStale: pickStale,
+    greetingLine: greetingLine, startHere: startHere, allDoneLine: allDoneLine
+  };
+});

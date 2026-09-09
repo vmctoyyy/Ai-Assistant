@@ -295,6 +295,73 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
   display:flex;flex-direction:column;gap:2rem;
 }
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ---- morning brief ---- */
+.head{position:relative}
+.briefLink{
+  position:absolute;top:.35rem;right:0;
+  font-size:.75rem;color:var(--ink-3);
+  text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--line-2);
+  min-height:44px;display:flex;align-items:flex-start;padding-top:.35rem;
+}
+.briefLink:hover{color:var(--accent);text-decoration-color:var(--accent)}
+.brief{gap:1.75rem}
+.greeting{
+  margin:0;font-size:1rem;color:var(--ink-2);
+}
+.starthere{
+  margin:0;font-family:var(--serif);font-size:1.3125rem;line-height:1.4;
+  text-wrap:pretty;
+}
+.sh-title{font-style:italic}
+.seclead{margin:0 0 .25rem;font-size:.8125rem;color:var(--ink-3);line-height:1.5}
+.briefend{display:flex;justify-content:center;padding-top:.5rem}
+
+/* ---- carry-ins ---- */
+.carrysec .tasks{
+  border-left:2px solid var(--line-2);padding-left:.875rem;margin-left:.0625rem;
+}
+.carrytag{
+  display:block;font-size:.6875rem;color:var(--ink-3);margin-top:.15rem;
+  letter-spacing:.02em;
+}
+.notes{display:block;font-size:.75rem;color:var(--ink-3);margin-top:.15rem;line-height:1.45}
+.mustdot{
+  display:inline-block;width:5px;height:5px;border-radius:50%;
+  background:var(--accent);margin-right:.5rem;vertical-align:.18em;flex:none;
+}
+
+/* ---- chips ---- */
+.chips{display:flex;gap:.375rem;flex-wrap:wrap}
+.chip{
+  border:1px solid var(--line);border-radius:999px;
+  padding:.3125rem .75rem;min-height:34px;
+  font-size:.8125rem;color:var(--ink-3);background:var(--surface);
+  transition:border-color .15s ease,color .15s ease,background .15s ease;
+}
+.chip:hover{color:var(--ink-2)}
+.chip.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.compchips{
+  display:flex;flex-direction:column;gap:.375rem;
+  max-width:var(--wrap);margin:0 auto .5rem;
+}
+.rowedit{
+  display:flex;flex-direction:column;gap:.5rem;
+  padding:.75rem 0 .875rem;border-bottom:1px solid var(--line);
+}
+.iconbtn.on{color:var(--accent);background:var(--accent-soft)}
+
+/* ---- suggestions & stale prompt ---- */
+.suggest{
+  display:flex;flex-direction:column;gap:.625rem;
+  padding:.875rem;background:var(--surface);
+  border:1px solid var(--line);border-radius:12px;margin-bottom:.5rem;
+}
+.suggest.stale{border-style:dashed}
+.sg-title{font-size:1rem;line-height:1.35;overflow-wrap:anywhere}
+.sg-meta{margin:0;font-size:.75rem;color:var(--ink-3)}
+.sg-acts{display:flex;gap:.5rem;flex-wrap:wrap}
+.btn.small{min-height:40px;padding:.4375rem .75rem;font-size:.8125rem}
 </style>
 </head>
 <body>
@@ -302,6 +369,7 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 
 <script src="vendor/react.js"></script>
 <script src="vendor/react-dom.js"></script>
+<script src="logic.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
