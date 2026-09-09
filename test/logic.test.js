@@ -213,6 +213,56 @@ t("same day is untouched", function () {
   assert.strictEqual(QD.rollDay(state, TODAY), state);
 });
 
+console.log("\ncompleted items stay until midnight");
+t("a task ticked off in any bucket stays visible today", function () {
+  ["today", "this_week", "this_month", "future"].forEach(function (bucket) {
+    var done = task("d", { bucket: bucket, completedAt: ms(TODAY, 10) });
+    assert.deepStrictEqual(ids(QD.completedInBucket([done], bucket, TODAY)), ["d"],
+      "vanished from " + bucket);
+  });
+});
+t("it is out of the open list but still on screen", function () {
+  var items = [
+    task("open", { bucket: "this_week" }),
+    task("done", { bucket: "this_week", completedAt: ms(TODAY, 10) })
+  ];
+  assert.deepStrictEqual(ids(QD.inBucket(items, "this_week")), ["open"], "open list");
+  assert.deepStrictEqual(ids(QD.completedInBucket(items, "this_week", TODAY)), ["done"]);
+});
+t("un-ticking puts it straight back", function () {
+  var done = task("d", { bucket: "this_week", completedAt: ms(TODAY, 10) });
+  var back = QD.applyPatch(done, { completedAt: null }, TODAY, 1);
+  assert.deepStrictEqual(ids(QD.inBucket([back], "this_week")), ["d"]);
+  assert.deepStrictEqual(QD.completedInBucket([back], "this_week", TODAY), []);
+});
+t("they clear at the midnight rollover, not before", function () {
+  var state = { version: 2, lastRollOn: TODAY, doneYesterday: 0, items: [
+    task("w", { bucket: "this_week", completedAt: ms(TODAY, 10) }),
+    task("m", { bucket: "this_month", completedAt: ms(TODAY, 11) }),
+    task("keep", { bucket: "this_week" })
+  ]};
+  assert.strictEqual(QD.rollDay(state, TODAY), state, "same day leaves them alone");
+  var next = QD.rollDay(state, "2026-09-10");
+  assert.deepStrictEqual(ids(next.items), ["keep"]);
+  assert.strictEqual(next.doneYesterday, 2, "and they are counted on the way out");
+});
+t("yesterday's completions do not linger on screen", function () {
+  var old = task("d", { bucket: "this_week", completedAt: ms("2026-09-08", 10) });
+  assert.deepStrictEqual(QD.completedInBucket([old], "this_week", TODAY), []);
+});
+t("ticked items list in the order they were ticked", function () {
+  var items = [
+    task("second", { bucket: "this_week", completedAt: ms(TODAY, 14) }),
+    task("first", { bucket: "this_week", completedAt: ms(TODAY, 9) })
+  ];
+  assert.deepStrictEqual(ids(QD.completedInBucket(items, "this_week", TODAY)), ["first", "second"]);
+});
+t("a bucket's completions never leak into another bucket", function () {
+  var items = [task("w", { bucket: "this_week", completedAt: ms(TODAY, 10) })];
+  assert.deepStrictEqual(QD.completedInBucket(items, "this_month", TODAY), []);
+  assert.deepStrictEqual(QD.completedInBucket(items, "today", TODAY), []);
+});
+
 console.log("\nbrief copy");
 t("greeting counts today's tasks", function () {
   assert.strictEqual(QD.greetingLine(0), "Nothing on today's list.");

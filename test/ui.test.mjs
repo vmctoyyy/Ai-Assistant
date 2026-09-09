@@ -22,6 +22,15 @@ await new Promise(r => setTimeout(r, 800));
 const b = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
 let pass = 0, fail = 0;
 const check = (n, ok, d) => { ok ? pass++ : fail++; console.log(`  ${ok?'ok  ':'FAIL'} ${n}${d?' — '+d:''}`); };
+/* Expand a collapsed section without collapsing an already-open one — an
+   earlier step may have left it either way. */
+const expand = async (pg, label) => {
+  const d = pg.locator('.disc', { hasText: label });
+  if ((await d.getAttribute('aria-expanded')) !== 'true') {
+    await d.tap();
+    await pg.waitForTimeout(250);
+  }
+};
 
 for (const dev of ['iPhone SE', 'iPhone 13']) {
   console.log(`\n##### ${dev} #####`);
@@ -90,8 +99,7 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   console.log('-- sheet: every control by tap --');
   await pg.getByRole('button', { name: 'Go to the full list' }).tap();
   await pg.waitForTimeout(250);
-  await pg.locator('.disc', { hasText: 'This week' }).tap();
-  await pg.waitForTimeout(250);
+  await expand(pg, 'This week');
   await pg.locator('button[aria-label="Options for Dentist"]').tap();
   await pg.waitForSelector('.sheet');
   const when = () => pg.locator('.sheetfield', { hasText: 'WHEN' });
@@ -147,6 +155,36 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   await pg.locator('.linkbtn.armed').tap();
   await pg.waitForTimeout(400);
   check('delete removes', (await items()).length === 0);
+
+  console.log('-- ticking off in a bucket does not make it vanish --');
+  await pg.locator('.composer input').tap();
+  await pg.waitForTimeout(200);
+  await pg.locator('.compchips .chip', { hasText: 'Week' }).tap();
+  await pg.waitForTimeout(150);
+  await pg.locator('.composer input').fill('Sort the garage');
+  await pg.locator('.addbtn').tap();
+  await pg.waitForTimeout(400);
+  const weekSec = pg.locator('.sec').filter({ has: pg.locator('.disc', { hasText: 'This week' }) });
+  if (await pg.locator('.brief').count()) {
+    await pg.getByRole('button', { name: 'Go to the full list' }).tap();
+    await pg.waitForTimeout(250);
+  }
+  await expand(pg, 'This week');
+  check('task shows in This week', await weekSec.locator('.row .txt').count() === 1,
+    JSON.stringify(await weekSec.locator('.row .txt').allInnerTexts()));
+  await weekSec.locator('.row .tapzone').first().tap();
+  await pg.waitForTimeout(400);
+  check('ticked task is STILL on screen', await weekSec.locator('.row').count() === 1);
+  check('ticked task is struck through', await weekSec.locator('.row.done').count() === 1);
+  check('header reads all done, not empty',
+    (await weekSec.locator('.meta').innerText()) === 'all done',
+    await weekSec.locator('.meta').innerText());
+  await weekSec.locator('.row .tapzone').first().tap();
+  await pg.waitForTimeout(400);
+  check('tapping again brings it back', await weekSec.locator('.row.done').count() === 0);
+  check('header counts it again', (await weekSec.locator('.meta').innerText()) === '1');
+  await weekSec.locator('button[aria-label^="Delete:"]').first().tap();
+  await pg.waitForTimeout(300);
 
   console.log('-- brain dump & backup --');
   await pg.locator('.composer .btn', { hasText: 'Brain dump' }).tap();

@@ -427,9 +427,7 @@
     var today = props.today, items = props.items;
     var ranked = useMemo(function () { return QD.rankToday(items, today); }, [items, today]);
     var doneToday = useMemo(function () {
-      return items.filter(function (t) {
-        return t.bucket === "today" && t.completedAt && QD.msToKey(t.completedAt) === today;
-      });
+      return QD.completedInBucket(items, "today", today);
     }, [items, today]);
     var suggestions = useMemo(function () { return QD.pickSuggestions(items, today); }, [items, today]);
     var anchored = useMemo(function () { return QD.pickAnchored(items, today); }, [items, today]);
@@ -710,16 +708,20 @@
 
   /* ---------- bucket section ---------- */
   function BucketSection(props) {
-    var st = useState(false), open = st[0], setOpen = st[1];
-    var list = props.items;
+    var st = useState(false), expanded = st[0], setExpanded = st[1];
+    var openItems = props.items, done = props.done || [];
+    var list = openItems.concat(done);
+    var count = openItems.length
+      ? String(openItems.length)
+      : (done.length ? "all done" : "empty");
     return section({ className: "sec" },
-      button({ className: "disc", onClick: function () { setOpen(!open); },
-        "aria-expanded": open ? "true" : "false" },
+      button({ className: "disc", onClick: function () { setExpanded(!expanded); },
+        "aria-expanded": expanded ? "true" : "false" },
         span({ className: "lbl" }, props.label),
         span({ style: { display: "flex", alignItems: "center", gap: ".625rem" } },
-          span({ className: "meta" }, list.length ? String(list.length) : "empty"),
-          span({ className: "chev" + (open ? " open" : "") }, icon(I_CHEV, 18)))),
-      open && list.length
+          span({ className: "meta" }, count),
+          span({ className: "chev" + (expanded ? " open" : "") }, icon(I_CHEV, 18)))),
+      expanded && list.length
         ? div({ className: "tasks" }, list.map(function (t) {
             return h(TaskRow, {
               key: t.id, task: t, today: props.today,
@@ -1001,9 +1003,7 @@
     /* ---- derived ---- */
     var rankedToday = useMemo(function () { return QD.rankToday(tasks.items, today); }, [tasks.items, today]);
     var doneToday = useMemo(function () {
-      return tasks.items.filter(function (t) {
-        return t.bucket === "today" && t.completedAt && QD.msToKey(t.completedAt) === today;
-      });
+      return QD.completedInBucket(tasks.items, "today", today);
     }, [tasks.items, today]);
     var nextEventId = useMemo(function () {
       for (var i = 0; i < sched.events.length; i++) {
@@ -1139,6 +1139,7 @@
           return h(BucketSection, {
             key: b, label: QD.BUCKET_LABEL[b], today: today,
             items: QD.inBucket(tasks.items, b),
+            done: QD.completedInBucket(tasks.items, b, today),
             onToggle: toggleTask, onDelete: deleteTask, onOptions: setEditingId
           });
         }),

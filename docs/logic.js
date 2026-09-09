@@ -257,6 +257,18 @@
     return items.filter(function (t) { return t.bucket === "today" && isOpen(t); })
                 .slice().sort(compareToday(today));
   }
+  /* Tasks ticked off today, in the order they were ticked. They stay on
+     screen, struck through, until the midnight rollover clears them — a tap
+     is easy to make by accident and must be easy to take back. */
+  function completedInBucket(items, bucket, today) {
+    return items.filter(function (t) {
+      return t.bucket === bucket && !!t.completedAt && msToKey(t.completedAt) === today;
+    }).slice().sort(function (a, b) {
+      if (a.completedAt !== b.completedAt) return a.completedAt - b.completedAt;
+      return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+    });
+  }
+
   function inBucket(items, bucket) {
     return items.filter(function (t) { return t.bucket === bucket && isOpen(t); })
       .slice().sort(function (a, b) {
@@ -623,6 +635,7 @@
     applyPatch: applyPatch,
     isOpen: isOpen, isCarryIn: isCarryIn, compareToday: compareToday,
     rankToday: rankToday, inBucket: inBucket,
+    completedInBucket: completedInBucket,
     pickSuggestions: pickSuggestions, pickStale: pickStale,
     isFixedToday: isFixedToday, fixedPoints: fixedPoints, flexibleToday: flexibleToday,
     pickAnchored: pickAnchored, planLine: planLine, buildICS: buildICS,

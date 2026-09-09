@@ -62,6 +62,10 @@ Report the merge in the summary; do not ask permission for it.
   guess. Month and weekday patterns are spelled out in full so "Monitor" is
   not read as Monday and "Separate" as September. The sheet shows a preview
   with the date spelled out before anything is saved; do not remove it.
+- **Ticking a task off never removes it from view.** Completed tasks stay on
+  screen, struck through, in every bucket until the midnight rollover clears
+  them — an accidental tap must be undoable by tapping again. `inBucket` is
+  open items only; pair it with `completedInBucket` wherever tasks are listed.
 - **Batch creation staggers `createdAt`.** Tasks made in one go otherwise
   share a millisecond, and the ranking tie-break falls through to the random
   id, losing the order they were typed in.
