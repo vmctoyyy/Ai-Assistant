@@ -62,11 +62,33 @@ Report the merge in the summary; do not ask permission for it.
 
 ## Verifying
 
-Tests are necessary but not sufficient — several real bugs (a sheet with no
-scroll, a button under the fixed composer) were only visible in a browser.
-Drive the app with Playwright against `python3 -m http.server` in `docs/`,
-using an iPhone SE viewport for anything involving the sheet or the composer.
-Chromium lives at `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`.
+Two suites, both required:
+
+```
+node test/logic.test.js                    # pure rules
+npm i playwright && CHROME=/opt/pw-browsers/chromium-1194/chrome-linux/chrome \
+  node test/ui.test.mjs                    # taps every control in a browser
+```
+
+Logic tests cannot see hit-testing, focus or layout bugs. Every UI bug that
+has reached the user got past a green logic suite. When touching the sheet or
+the composer, run the UI audit.
+
+Two rules in `test/ui.test.mjs` exist because breaking them shipped a broken
+build to the user's phone:
+
+- **Use `tap()`, never `click()`.** A tap blurs whatever had focus first.
+  A whole row of composer chips was dead on a real phone while `click()`
+  tests passed, because the input blurred and unmounted the chips before the
+  tap landed.
+- **Tap chips BEFORE typing.** Tests that typed first kept the chip row open
+  and hid the bug entirely. The empty-input path is the one people use.
+
+Also: `env(safe-area-inset-*)` is `0` in Chromium but ~34px on a real iPhone,
+so anything positioned against it is untested by default. Prefer layouts that
+do not depend on it — a flex header/body/footer rather than `position:sticky`
+with a negative offset. `-webkit-overflow-scrolling:touch` mis-hit-tests on
+iOS Safari; do not reintroduce it.
 
 Note: this sandbox blocks `github.io`, `cdnjs`, `fonts.googleapis.com` and
 `netlify.com`. The live site cannot be fetched from here — verify deploys via

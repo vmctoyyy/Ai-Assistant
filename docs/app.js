@@ -224,6 +224,9 @@
           key: o.value, type: "button",
           className: "chip" + (on ? " on" : ""),
           "aria-pressed": on ? "true" : "false",
+          /* Keep focus where it is. Without this the composer's input blurs,
+             its chip row unmounts, and the tap lands on nothing. */
+          onMouseDown: function (e) { e.preventDefault(); },
           onClick: function () { props.onChange(o.value); }
         }, o.label);
       }));
@@ -232,6 +235,7 @@
     return button({
       type: "button", className: "togglebtn", role: "switch",
       "aria-checked": props.on ? "true" : "false",
+      onMouseDown: function (e) { e.preventDefault(); },
       onClick: function () { props.onChange(!props.on); }
     },
       span({ className: "tick" + (props.on ? " on" : ""), "aria-hidden": "true" }, icon(I_CHECK, 13)),
@@ -346,7 +350,22 @@
       props.onClose();
     }
 
-    return h(Sheet, { title: "Task options", onClose: props.onClose },
+    return h(Sheet, {
+      title: "Task options", onClose: props.onClose, footerSpread: true,
+      footer: [
+        button({
+          key: "del",
+          className: "linkbtn danger" + (armed ? " armed" : ""),
+          onClick: function () {
+            if (armed) { props.onDelete(); props.onClose(); } else { setArmed(true); }
+          },
+          onBlur: function () { setArmed(false); }
+        }, armed ? "Tap again to delete" : "Delete"),
+        div({ key: "acts", style: { display: "flex", gap: ".5rem" } },
+          button({ className: "btn", onClick: props.onClose }, "Cancel"),
+          button({ className: "btn primary", disabled: !clean, onClick: save }, "Save"))
+      ]
+    },
       div({ className: "sheetfield" },
         span({ className: "fieldlabel" }, "Name"),
         input({
@@ -400,19 +419,7 @@
           onChange: function (e) { setNotes(e.target.value); }
         })),
 
-      p({ className: "addedline" }, QD.addedLabel(task.createdAt, props.today)),
-
-      div({ className: "sheetfoot spread" },
-        button({
-          className: "linkbtn danger" + (armed ? " armed" : ""),
-          onClick: function () {
-            if (armed) { props.onDelete(); props.onClose(); } else { setArmed(true); }
-          },
-          onBlur: function () { setArmed(false); }
-        }, armed ? "Tap again to delete" : "Delete"),
-        div({ style: { display: "flex", gap: ".5rem" } },
-          button({ className: "btn", onClick: props.onClose }, "Cancel"),
-          button({ className: "btn primary", disabled: !clean, onClick: save }, "Save"))));
+      p({ className: "addedline" }, QD.addedLabel(task.createdAt, props.today)));
   }
 
   /* ---------- morning brief ---------- */
@@ -535,7 +542,10 @@
       className: "scrim",
       onMouseDown: function (e) { if (e.target === e.currentTarget) props.onClose(); }
     }, div({ className: "sheet", role: "dialog", "aria-modal": "true", "aria-label": props.title },
-      h2(null, props.title), props.children));
+      h2(null, props.title),
+      div({ className: "sheetbody" }, props.children),
+      props.footer ? div({ className: "sheetfoot" + (props.footerSpread ? " spread" : "") },
+        props.footer) : null));
   }
 
   function BrainDump(props) {
@@ -543,20 +553,23 @@
     var lines = text.split("\n").map(function (l) {
       return l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim();
     }).filter(Boolean);
-    return h(Sheet, { title: "Brain dump", onClose: props.onClose },
+    return h(Sheet, {
+      title: "Brain dump", onClose: props.onClose,
+      footer: [
+        button({ key: "c", className: "btn", onClick: props.onClose }, "Cancel"),
+        button({
+          key: "a", className: "btn primary", disabled: lines.length === 0,
+          onClick: function () { props.onAdd(lines); props.onClose(); }
+        }, lines.length === 0 ? "Add tasks"
+          : "Add " + lines.length + (lines.length === 1 ? " task" : " tasks"))
+      ]
+    },
       p(null, "One task per line. Everything lands in today, marked should."),
       textarea({
         value: text, autoFocus: true, spellCheck: true,
         placeholder: "Ring the plumber\nDraft the Thursday update\nBook flights for October",
         onChange: function (e) { setText(e.target.value); }
-      }),
-      div({ className: "sheetfoot" },
-        button({ className: "btn", onClick: props.onClose }, "Cancel"),
-        button({
-          className: "btn primary", disabled: lines.length === 0,
-          onClick: function () { props.onAdd(lines); props.onClose(); }
-        }, lines.length === 0 ? "Add tasks"
-          : "Add " + lines.length + (lines.length === 1 ? " task" : " tasks"))));
+      }));
   }
 
   function Backup(props) {
@@ -591,7 +604,19 @@
       props.onRestore(parsed);
       setNote("Restored.");
     }
-    return h(Sheet, { title: "Back up & restore", onClose: props.onClose },
+    return h(Sheet, {
+      title: "Back up & restore", onClose: props.onClose,
+      footer: [
+        button({ key: "c", className: "btn", onClick: props.onClose }, "Close"),
+        mode === "export"
+          ? button({ key: "cp", className: "btn", onClick: copy }, "Copy")
+          : null,
+        mode === "export"
+          ? button({ key: "dl", className: "btn primary", onClick: download }, "Save file")
+          : button({ key: "rs", className: "btn primary", disabled: !paste.trim(),
+              onClick: restore }, "Replace everything")
+      ]
+    },
       p(null, mode === "export"
         ? "Your whole dashboard as text. Keep a copy somewhere safe — this app stores everything on this device only."
         : "Paste a backup below. This replaces everything currently in the app."),
@@ -606,14 +631,7 @@
         : textarea({ className: "code", value: paste, autoFocus: true,
             placeholder: '{ "tasks": { ... } }',
             onChange: function (e) { setPaste(e.target.value); } }),
-      note ? p(null, note) : null,
-      div({ className: "sheetfoot" },
-        button({ className: "btn", onClick: props.onClose }, "Close"),
-        mode === "export"
-          ? h(React.Fragment, null,
-              button({ className: "btn", onClick: copy }, "Copy"),
-              button({ className: "btn primary", onClick: download }, "Save file"))
-          : button({ className: "btn primary", disabled: !paste.trim(), onClick: restore }, "Replace everything")));
+      note ? p(null, note) : null);
   }
 
   /* ---------- markets ---------- */
@@ -709,6 +727,8 @@
     var s6 = useState(blankMarkets), markets = s6[0], setMarketsRaw = s6[1];
     var s7 = useState(blankPrefs), prefs = s7[0], setPrefsRaw = s7[1];
     var s8 = useState(""), quick = s8[0], setQuick = s8[1];
+    var quickRef = useRef("");
+    quickRef.current = quick;
     var s9 = useState(false), composerOpen = s9[0], setComposerOpen = s9[1];
     var s10 = useState("today"), addBucket = s10[0], setAddBucket = s10[1];
     var s11 = useState("should"), addImp = s11[0], setAddImp = s11[1];
@@ -999,7 +1019,15 @@
           placeholder: briefOpen ? "Anything else for today?" : "Add a task",
           "aria-label": "Add a task", enterKeyHint: "done",
           onFocus: function () { setComposerOpen(true); },
-          onBlur: function () { if (!quick.trim()) setComposerOpen(false); },
+          onBlur: function () {
+            /* Safety net for browsers that blur before the click: only close
+               once focus has genuinely left the composer. */
+            setTimeout(function () {
+              var el = document.activeElement;
+              if (el && el.closest && el.closest(".composer")) return;
+              if (!quickRef.current.trim()) setComposerOpen(false);
+            }, 200);
+          },
           onChange: function (e) { setQuick(e.target.value); }
         }),
         button({ className: "btn", type: "button", onClick: function () { setDumping(true); } }, "Brain dump")));

@@ -252,14 +252,14 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
   border-radius:16px 16px 0 0;border:1px solid var(--line);border-bottom:0;
   padding:1.25rem 1.125rem calc(1.25rem + env(safe-area-inset-bottom,0px));
   display:flex;flex-direction:column;gap:.875rem;
-  max-height:88dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  max-height:88dvh;overflow:hidden;
 }
-/* keep the actions reachable however tall the sheet's content grows */
-.sheetfoot{
-  position:sticky;bottom:calc(-1.25rem - env(safe-area-inset-bottom,0px));
-  background:var(--ground);
-  padding:.75rem 0 calc(.25rem + env(safe-area-inset-bottom,0px));
-  margin-top:auto;
+/* The body scrolls; the actions are a flex sibling that never moves.
+   Deliberately not position:sticky inside the scroller — that combination
+   mis-hit-tests on iOS Safari. */
+.sheetbody{
+  flex:0 1 auto;min-height:0;overflow-y:auto;
+  display:flex;flex-direction:column;gap:.875rem;
 }
 .sheet h2{margin:0;font-family:var(--serif);font-size:1.375rem;font-weight:400}
 .sheet p{margin:0;font-size:.875rem;color:var(--ink-2)}
@@ -269,7 +269,10 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 }
 .sheet textarea.code{font-family:var(--mono);font-size:.75rem;line-height:1.5;min-height:22vh}
 .sheet textarea:focus{outline:none;border-color:var(--accent)}
-.sheetfoot{display:flex;gap:.5rem;justify-content:flex-end;flex-wrap:wrap}
+.sheetfoot{
+  flex:none;display:flex;gap:.5rem;justify-content:flex-end;flex-wrap:wrap;
+  padding-top:.875rem;border-top:1px solid var(--line);
+}
 
 /* footer */
 .foot{display:flex;flex-direction:column;gap:.5rem;padding-top:1.5rem;border-top:1px solid var(--line)}
