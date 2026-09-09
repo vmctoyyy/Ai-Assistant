@@ -54,6 +54,48 @@
 
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
+  /* Appointment fields. Both are optional and independent: a time with no
+     date reads as "at 10:30" on whatever day the task is sitting in. */
+  function validDate(v) {
+    return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+  }
+  function validTime(v) {
+    if (typeof v !== "string") return null;
+    var m = v.match(/^(\d{2}:\d{2})(?::\d{2})?$/);
+    return m ? m[1] : null;
+  }
+
+  /* "10:30 · Thursday" — what the row shows under an appointment's title. */
+  function dueLabel(dueDate, dueTime, today) {
+    var date = validDate(dueDate), time = validTime(dueTime);
+    if (!date && !time) return "";
+    var parts = [];
+    if (time) parts.push(time);
+    if (date) {
+      var n = daysBetween(today, date);
+      var d = keyToDate(date);
+      if (n === 0) parts.push("today");
+      else if (n === 1) parts.push("tomorrow");
+      else if (n === -1) parts.push("yesterday");
+      else if (n > 1 && n < 7) parts.push(WD_FULL[d.getDay()]);
+      else parts.push(d.getDate() + " " + MO3[d.getMonth()]);
+    }
+    return parts.join(" \u00b7 ");
+  }
+
+  /* Quiet provenance line in the options sheet. */
+  function addedLabel(ms, today) {
+    var key = msToKey(ms);
+    var n = daysBetween(key, today);
+    if (n <= 0) return "Added today";
+    if (n === 1) return "Added yesterday";
+    if (n < 7) return "Added on " + WD_FULL[keyToDate(key).getDay()];
+    var d = keyToDate(key);
+    var out = d.getDate() + " " + MO3[d.getMonth()];
+    if (d.getFullYear() !== keyToDate(today).getFullYear()) out += " " + d.getFullYear();
+    return "Added " + out;
+  }
+
   /* ---------- task shape ---------- */
   function makeTask(title, opts) {
     opts = opts || {};
@@ -71,7 +113,9 @@
       notes: opts.notes ? String(opts.notes) : "",
       firstTodayOn: bucket === "today" ? day : null,
       notTodayOn: null,
-      staleAskedOn: null
+      staleAskedOn: null,
+      dueDate: validDate(opts.dueDate),
+      dueTime: validTime(opts.dueTime)
     };
   }
 
@@ -93,7 +137,9 @@
       notes: t.notes ? String(t.notes) : "",
       firstTodayOn: t.firstTodayOn || (bucket === "today" ? (today || msToKey(created)) : null),
       notTodayOn: t.notTodayOn || null,
-      staleAskedOn: t.staleAskedOn || null
+      staleAskedOn: t.staleAskedOn || null,
+      dueDate: validDate(t.dueDate),
+      dueTime: validTime(t.dueTime)
     };
   }
 
@@ -141,6 +187,8 @@
     Object.keys(changes).forEach(function (k) { next[k] = changes[k]; });
     if (changes.title !== undefined) next.title = String(changes.title);
     if (changes.notes !== undefined) next.notes = changes.notes ? String(changes.notes) : "";
+    if (changes.dueDate !== undefined) next.dueDate = validDate(changes.dueDate);
+    if (changes.dueTime !== undefined) next.dueTime = validTime(changes.dueTime);
     if (changes.bucket && changes.bucket !== task.bucket) {
       next.notTodayOn = null;
       next.firstTodayOn = changes.bucket === "today" ? today : null;
@@ -278,6 +326,8 @@
     dayKey: dayKey, todayKey: todayKey, keyToDate: keyToDate, shiftKey: shiftKey,
     daysBetween: daysBetween, msToKey: msToKey, sinceLabel: sinceLabel,
     numberWord: numberWord, uid: uid,
+    validDate: validDate, validTime: validTime,
+    dueLabel: dueLabel, addedLabel: addedLabel,
     makeTask: makeTask, normTask: normTask, migrate: migrate, rollDay: rollDay,
     applyPatch: applyPatch,
     isOpen: isOpen, isCarryIn: isCarryIn, compareToday: compareToday,

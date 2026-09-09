@@ -250,7 +250,15 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
   background:var(--ground);width:100%;max-width:var(--wrap);
   border-radius:16px 16px 0 0;border:1px solid var(--line);border-bottom:0;
   padding:1.25rem 1.125rem calc(1.25rem + env(safe-area-inset-bottom,0px));
-  display:flex;flex-direction:column;gap:.875rem;max-height:88vh;
+  display:flex;flex-direction:column;gap:.875rem;
+  max-height:88dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;
+}
+/* keep the actions reachable however tall the sheet's content grows */
+.sheetfoot{
+  position:sticky;bottom:calc(-1.25rem - env(safe-area-inset-bottom,0px));
+  background:var(--ground);
+  padding:.75rem 0 calc(.25rem + env(safe-area-inset-bottom,0px));
+  margin-top:auto;
 }
 .sheet h2{margin:0;font-family:var(--serif);font-size:1.375rem;font-weight:400}
 .sheet p{margin:0;font-size:.875rem;color:var(--ink-2)}
@@ -352,6 +360,26 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 }
 .fieldnote{font-size:.75rem;color:var(--ink-3)}
 .sheetfoot.spread{justify-content:space-between;align-items:center}
+.togglerow{display:flex;align-items:center;gap:.75rem;min-height:48px}
+.togglebtn{display:flex;align-items:center;gap:.625rem;min-height:48px;flex:none}
+.tick{
+  width:22px;height:22px;border-radius:6px;flex:none;
+  border:1.5px solid var(--line-2);display:grid;place-items:center;
+  transition:background .15s ease,border-color .15s ease;
+}
+.tick.on{background:var(--accent);border-color:var(--accent)}
+.tick svg{opacity:0;color:var(--ground)}
+.tick.on svg{opacity:1}
+.ticklabel{font-size:.9375rem;color:var(--ink-2)}
+.togglebtn[aria-checked="true"] .ticklabel{color:var(--ink)}
+.field.stamp{width:auto;flex:1;min-width:0;font-family:var(--mono);min-height:44px}
+.addedline{
+  margin:.25rem 0 0;font-size:.75rem;color:var(--ink-3);
+}
+.duetag{
+  display:block;font-size:.75rem;color:var(--ink-2);margin-top:.15rem;
+  font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:.01em;
+}
 
 /* ---- suggestions & stale prompt ---- */
 .suggest{

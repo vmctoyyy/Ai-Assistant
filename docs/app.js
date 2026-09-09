@@ -228,6 +228,16 @@
         }, o.label);
       }));
   }
+  function Toggle(props) {
+    return button({
+      type: "button", className: "togglebtn", role: "switch",
+      "aria-checked": props.on ? "true" : "false",
+      onClick: function () { props.onChange(!props.on); }
+    },
+      span({ className: "tick" + (props.on ? " on" : ""), "aria-hidden": "true" }, icon(I_CHECK, 13)),
+      span({ className: "ticklabel" }, props.label));
+  }
+
   var BUCKET_OPTS = QD.BUCKETS.map(function (b) {
     return { value: b, label: b === "today" ? "Today"
       : b === "this_week" ? "Week" : b === "this_month" ? "Month" : "Future" };
@@ -243,6 +253,7 @@
     var st = useState(0), offset = st[0], setOffset = st[1];
     var done = !!task.completedAt;
     var carry = QD.isCarryIn(task, today);
+    var due = QD.dueLabel(task.dueDate, task.dueTime, today);
 
     function down(e) {
       if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -287,6 +298,7 @@
             task.importance === "must" && !done
               ? span({ className: "mustdot", title: "Must-do", "aria-label": "Must-do" }) : null,
             task.title,
+            due ? span({ className: "duetag" }, due) : null,
             carry ? span({ className: "carrytag" }, "since " + QD.sinceLabel(task.firstTodayOn, today)) : null,
             task.notes ? span({ className: "notes" }, task.notes) : null)),
         button({
@@ -310,11 +322,19 @@
     var s3 = useState(task.importance), imp = s3[0], setImp = s3[1];
     var s4 = useState(task.notes || ""), notes = s4[0], setNotes = s4[1];
     var s5 = useState(false), armed = s5[0], setArmed = s5[1];
+    var s6 = useState(!!task.dueDate), onDate = s6[0], setOnDate = s6[1];
+    var s7 = useState(task.dueDate || props.today), date = s7[0], setDate = s7[1];
+    var s8 = useState(!!task.dueTime), onTime = s8[0], setOnTime = s8[1];
+    var s9 = useState(task.dueTime || "09:00"), time = s9[0], setTime = s9[1];
     var clean = title.trim();
 
     function save() {
       if (!clean) return;
-      props.onSave({ title: clean, bucket: bucket, importance: imp, notes: notes.trim() });
+      props.onSave({
+        title: clean, bucket: bucket, importance: imp, notes: notes.trim(),
+        dueDate: onDate ? date : null,
+        dueTime: onTime ? time : null
+      });
       props.onClose();
     }
 
@@ -338,6 +358,22 @@
         h(Chips, { label: "Bucket", options: BUCKET_OPTS, value: bucket, onChange: setBucket }),
         bucket !== task.bucket && bucket !== "today"
           ? span({ className: "fieldnote" }, "Moves off today's list.")
+          : null,
+        div({ className: "togglerow" },
+          h(Toggle, { on: onDate, label: "Date", onChange: setOnDate }),
+          onDate ? input({
+            className: "field stamp", type: "date", value: date, "aria-label": "Date",
+            onChange: function (e) { setDate(e.target.value); }
+          }) : null),
+        div({ className: "togglerow" },
+          h(Toggle, { on: onTime, label: "Time", onChange: setOnTime }),
+          onTime ? input({
+            className: "field stamp", type: "time", value: time, "aria-label": "Time",
+            onChange: function (e) { setTime(e.target.value); }
+          }) : null),
+        onDate || onTime
+          ? span({ className: "fieldnote" },
+              "Shown on the task. It stays in " + QD.BUCKET_LABEL[bucket].toLowerCase() + ".")
           : null),
 
       div({ className: "sheetfield" },
@@ -347,6 +383,8 @@
           "aria-label": "Note", enterKeyHint: "done",
           onChange: function (e) { setNotes(e.target.value); }
         })),
+
+      p({ className: "addedline" }, QD.addedLabel(task.createdAt, props.today)),
 
       div({ className: "sheetfoot spread" },
         button({
@@ -879,7 +917,7 @@
     var editingTask = editingId
       ? tasks.items.filter(function (t) { return t.id === editingId; })[0] : null;
     var taskSheet = editingTask ? h(TaskSheet, {
-      key: editingTask.id, task: editingTask,
+      key: editingTask.id, task: editingTask, today: today,
       onClose: function () { setEditingId(null); },
       onSave: function (changes) { patch(editingTask.id, changes); },
       onDelete: function () { deleteTask(editingTask.id); }

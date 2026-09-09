@@ -73,6 +73,10 @@ user changes them.
 
 Each task row has an options button that opens a sheet for renaming, changing
 importance, moving it to another bucket, adding a short note, or deleting it.
+Under **When**, a date and a time can each be ticked on independently, turning
+a task into an appointment; they are shown on the task row and never move it
+between buckets or change its place in the ranking. The sheet also states when
+the task was added.
 Moving a task out of `today` and back later resets its carry-in clock, so a
 returning task is not mistaken for one that has been waiting all along.
 

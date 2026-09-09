@@ -255,6 +255,66 @@ t("all-done reads as fact, not praise", function () {
   assert.strictEqual(QD.allDoneLine([], TODAY), "Nothing on today's list.");
 });
 
+console.log("\nappointments");
+t("date and time are optional and independent", function () {
+  var a = QD.makeTask("Dentist", { today: TODAY });
+  assert.strictEqual(a.dueDate, null);
+  assert.strictEqual(a.dueTime, null);
+  var b = QD.applyPatch(a, { dueTime: "10:30" }, TODAY, 1);
+  assert.strictEqual(QD.dueLabel(b.dueDate, b.dueTime, TODAY), "10:30");
+  var c = QD.applyPatch(a, { dueDate: "2026-09-11" }, TODAY, 1);
+  assert.strictEqual(QD.dueLabel(c.dueDate, c.dueTime, TODAY), "Friday");
+});
+t("due label reads naturally near and far", function () {
+  var L = function (d, t) { return QD.dueLabel(d, t, TODAY); };
+  assert.strictEqual(L("2026-09-09", "09:00"), "09:00 \u00b7 today");
+  assert.strictEqual(L("2026-09-10", null), "tomorrow");
+  assert.strictEqual(L("2026-09-08", null), "yesterday");
+  assert.strictEqual(L("2026-09-12", "14:15"), "14:15 \u00b7 Saturday");
+  assert.strictEqual(L("2026-10-02", null), "2 Oct");
+  assert.strictEqual(L(null, null), "");
+});
+t("ticking a field off clears it", function () {
+  var a = QD.applyPatch(QD.makeTask("Dentist", { today: TODAY }),
+    { dueDate: "2026-09-11", dueTime: "10:30" }, TODAY, 1);
+  var b = QD.applyPatch(a, { dueDate: null, dueTime: null }, TODAY, 2);
+  assert.strictEqual(b.dueDate, null);
+  assert.strictEqual(b.dueTime, null);
+  assert.strictEqual(QD.dueLabel(b.dueDate, b.dueTime, TODAY), "");
+});
+t("malformed dates and times are rejected, not stored", function () {
+  ["11/09/2026", "2026-9-1", "tomorrow", "", 42, null].forEach(function (bad) {
+    assert.strictEqual(QD.validDate(bad), null, String(bad));
+  });
+  ["25:00x", "9:30am", "", 42, null].forEach(function (bad) {
+    assert.strictEqual(QD.validTime(bad), null, String(bad));
+  });
+  assert.strictEqual(QD.validTime("10:30:00"), "10:30");
+  assert.strictEqual(QD.validDate("2026-09-11"), "2026-09-11");
+});
+t("appointment fields survive a save/reload round trip", function () {
+  var a = QD.applyPatch(QD.makeTask("Dentist", { today: TODAY }),
+    { dueDate: "2026-09-11", dueTime: "10:30" }, TODAY, 1);
+  var out = QD.migrate({ version: 2, items: [a], doneYesterday: 0, lastRollOn: TODAY }, TODAY);
+  assert.strictEqual(out.items[0].dueDate, "2026-09-11");
+  assert.strictEqual(out.items[0].dueTime, "10:30");
+});
+t("an appointment does not change bucket or ranking on its own", function () {
+  var plain = task("plain", { importance: "must" });
+  var appt = QD.applyPatch(task("appt"), { dueTime: "07:00" }, TODAY, 1);
+  assert.strictEqual(appt.bucket, "today");
+  assert.deepStrictEqual(ids(QD.rankToday([appt, plain], TODAY)), ["plain", "appt"]);
+});
+
+console.log("\naddedLabel");
+t("says when a task was added, quietly", function () {
+  assert.strictEqual(QD.addedLabel(ms(TODAY, 9), TODAY), "Added today");
+  assert.strictEqual(QD.addedLabel(ms("2026-09-08", 9), TODAY), "Added yesterday");
+  assert.strictEqual(QD.addedLabel(ms("2026-09-06", 9), TODAY), "Added on Sunday");
+  assert.strictEqual(QD.addedLabel(ms("2026-08-30", 9), TODAY), "Added 30 Aug");
+  assert.strictEqual(QD.addedLabel(ms("2025-12-24", 9), TODAY), "Added 24 Dec 2025");
+});
+
 console.log("\nsinceLabel");
 t("reads naturally across the week", function () {
   assert.strictEqual(QD.sinceLabel("2026-09-08", TODAY), "yesterday");
