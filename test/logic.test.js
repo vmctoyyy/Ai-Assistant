@@ -432,6 +432,158 @@ t("escapes characters that would corrupt the file", function () {
   assert.ok(ics.indexOf("SUMMARY:Coffee\\, then tax\\; admin") !== -1, ics);
 });
 
+console.log("\ncapture: the worked example");
+var P = function (line) { return QD.parseTaskLine(line, TODAY); };   // TODAY = Wed 2026-09-09
+t("reads title, time, date and notes out of one sentence", function () {
+  var r = P("Add MRI in Napier at 10:00, Tue 15th Sep. Add Ahuriri, 18 Ossian Street to notes");
+  assert.strictEqual(r.title, "MRI in Napier");
+  assert.strictEqual(r.dueTime, "10:00");
+  assert.strictEqual(r.dueDate, "2026-09-15");
+  assert.strictEqual(r.notes, "Ahuriri, 18 Ossian Street");
+  assert.strictEqual(r.bucket, "this_week");
+  assert.strictEqual(r.importance, "should");
+});
+
+console.log("\ncapture: times");
+t("12-hour and 24-hour both work", function () {
+  assert.strictEqual(P("Dentist at 10:00").dueTime, "10:00");
+  assert.strictEqual(P("Dentist 2.30pm").dueTime, "14:30");
+  assert.strictEqual(P("Dentist 9am").dueTime, "09:00");
+  assert.strictEqual(P("Standup at 14:30").dueTime, "14:30");
+});
+t("midnight and midday are not swapped", function () {
+  assert.strictEqual(P("Flight 12am").dueTime, "00:00");
+  assert.strictEqual(P("Lunch 12pm").dueTime, "12:00");
+  assert.strictEqual(P("Lunch 12:30pm").dueTime, "12:30");
+});
+t("bare numbers are never a time", function () {
+  assert.strictEqual(P("Buy 2 pints").dueTime, null);
+  assert.strictEqual(P("Buy 2 pints").title, "Buy 2 pints");
+  assert.strictEqual(P("Pick up 18 Ossian Street").dueTime, null);
+});
+
+console.log("\ncapture: dates");
+t("day-month, month-day and numeric all resolve", function () {
+  assert.strictEqual(P("Pay invoice 15 Sep").dueDate, "2026-09-15");
+  assert.strictEqual(P("Pay invoice Sep 15").dueDate, "2026-09-15");
+  assert.strictEqual(P("Pay invoice 15/9").dueDate, "2026-09-15");
+  assert.strictEqual(P("Pay invoice 15 September 2026").dueDate, "2026-09-15");
+  assert.strictEqual(P("Pay invoice 15/09/2026").dueDate, "2026-09-15");
+});
+t("a bare date that has passed rolls to next year", function () {
+  assert.strictEqual(P("Renew rego 1 Mar").dueDate, "2027-03-01");
+  assert.strictEqual(P("Renew rego 31 Dec").dueDate, "2026-12-31");
+});
+t("today, tonight and tomorrow", function () {
+  assert.strictEqual(P("Bins out tonight").dueDate, TODAY);
+  assert.strictEqual(P("Bins out today").dueDate, TODAY);
+  assert.strictEqual(P("Bins out tomorrow").dueDate, "2026-09-10");
+});
+t("a weekday means the NEXT one, never today", function () {
+  assert.strictEqual(P("Coffee Friday").dueDate, "2026-09-11");
+  assert.strictEqual(P("Coffee next Tuesday").dueDate, "2026-09-15");
+  assert.strictEqual(P("Coffee Wednesday").dueDate, "2026-09-16", "today is Wednesday");
+});
+t("words that merely start like a month or day are left alone", function () {
+  ["Monitor the bank account", "Separate the recycling", "March the kids to school",
+   "Satisfy the auditor", "Decorate the hall", "Augment the report"].forEach(function (line) {
+    var r = P(line);
+    assert.strictEqual(r.dueDate, null, line + " -> " + r.dueDate);
+    assert.strictEqual(r.title, line, line + " -> " + r.title);
+  });
+});
+
+console.log("\ncapture: notes, importance, bucket");
+t("notes survive their own commas", function () {
+  assert.strictEqual(P("Dentist. Add Ahuriri, 18 Ossian Street to notes").notes,
+    "Ahuriri, 18 Ossian Street");
+  assert.strictEqual(P("Dentist. Note: bring the referral").notes, "bring the referral");
+});
+t("only explicit markers set importance", function () {
+  assert.strictEqual(P("Must renew car insurance").importance, "must");
+  assert.strictEqual(P("Urgent: call the bank").importance, "must");
+  assert.strictEqual(P("Tidy the shed if I get time").importance, "nice");
+  assert.strictEqual(P("Have a nice lunch").importance, "should", "a bare adjective is not a marker");
+});
+t("bucket follows the date unless said otherwise", function () {
+  assert.strictEqual(P("Buy milk").bucket, "today");
+  assert.strictEqual(P("Coffee tomorrow").bucket, "this_week");
+  assert.strictEqual(P("Dentist 5 Oct").bucket, "this_month");
+  assert.strictEqual(P("Renew passport 1 Mar").bucket, "future");
+  assert.strictEqual(P("Sort the garage this week").bucket, "this_week");
+  assert.strictEqual(P("Paint the fence someday").bucket, "future");
+});
+t("a stripped leading imperative keeps its capital", function () {
+  assert.strictEqual(P("Add milk to the list").title, "Milk to the list");
+  assert.strictEqual(P("Must renew car insurance").title, "Renew car insurance");
+  assert.strictEqual(P("remember to call mum").title, "call mum");
+});
+
+console.log("\ncapture: safety");
+t("an unrecognised line is kept verbatim, never guessed at", function () {
+  var odd = "Ring whoever it was about the thing";
+  var r = P(odd);
+  assert.strictEqual(r.title, odd);
+  assert.strictEqual(r.dueDate, null);
+  assert.strictEqual(r.dueTime, null);
+});
+t("a line that is only a date still yields a usable title", function () {
+  var r = P("15 Sep");
+  assert.ok(r.title.length > 0, "title must not be empty");
+  assert.strictEqual(r.dueDate, "2026-09-15");
+});
+t("it reports what it recognised so the UI can show it", function () {
+  var r = P("MRI 10am 15 Sep. Add parking to notes");
+  assert.deepStrictEqual(Object.keys(r.found).sort(), ["date", "notes", "time"]);
+  assert.strictEqual(P("Buy milk").found.date, undefined);
+});
+t("blank and junk lines are dropped, not turned into tasks", function () {
+  assert.strictEqual(P(""), null);
+  assert.strictEqual(P("   "), null);
+  assert.strictEqual(P(null), null);
+});
+t("a multi-line dump yields one task per non-empty line", function () {
+  var out = QD.parseBrainDump("Buy milk\n\n- Dentist 2pm tomorrow\n2. Call the bank", TODAY);
+  assert.strictEqual(out.length, 3);
+  assert.deepStrictEqual(out.map(function (x) { return x.title; }),
+    ["Buy milk", "Dentist", "Call the bank"]);
+  assert.strictEqual(out[1].dueTime, "14:00");
+});
+t("a batch keeps the order it was typed in", function () {
+  var specs = QD.parseBrainDump("First thing\nSecond thing\nThird thing", TODAY);
+  var base = 1000;
+  var made = specs.map(function (r, i) {
+    return QD.makeTask(r.title, { bucket: r.bucket, importance: r.importance,
+      today: TODAY, now: base + i });
+  });
+  assert.deepStrictEqual(QD.rankToday(made, TODAY).map(function (x) { return x.title; }),
+    ["First thing", "Second thing", "Third thing"]);
+  /* without the stagger the tie-break is the random id, so order is arbitrary */
+  var same = specs.map(function (r) {
+    return QD.makeTask(r.title, { bucket: r.bucket, today: TODAY, now: base });
+  });
+  assert.strictEqual(same[0].createdAt, same[2].createdAt, "same ms means no ordering signal");
+});
+t("the preview spells the date out so a wrong one is catchable", function () {
+  var L = function (d, t) { return QD.dueLabelLong(d, t, TODAY); };
+  assert.strictEqual(L("2026-09-15", "10:00"), "10:00 \u00b7 Tue 15 Sep");
+  assert.strictEqual(L("2026-09-09", "09:00"), "09:00 \u00b7 Wed 9 Sep (today)");
+  assert.strictEqual(L("2026-09-10", null), "Thu 10 Sep (tomorrow)");
+  assert.strictEqual(L("2027-03-01", null), "Mon 1 Mar 2027", "a different year is stated");
+  assert.strictEqual(L(null, "08:00"), "08:00");
+  assert.strictEqual(L(null, null), "");
+});
+t("parsed output is a valid task once made", function () {
+  var r = P("Add MRI in Napier at 10:00, Tue 15th Sep. Add Ahuriri, 18 Ossian Street to notes");
+  var task = QD.makeTask(r.title, { bucket: r.bucket, importance: r.importance,
+    today: TODAY, notes: r.notes, dueDate: r.dueDate, dueTime: r.dueTime });
+  assert.strictEqual(task.dueDate, "2026-09-15");
+  assert.strictEqual(task.dueTime, "10:00");
+  assert.strictEqual(task.notes, "Ahuriri, 18 Ossian Street");
+  assert.strictEqual(task.bucket, "this_week");
+  assert.strictEqual(QD.dueLabel(task.dueDate, task.dueTime, TODAY), "10:00 · Tuesday");
+});
+
 console.log("\nsinceLabel");
 t("reads naturally across the week", function () {
   assert.strictEqual(QD.sinceLabel("2026-09-08", TODAY), "yesterday");

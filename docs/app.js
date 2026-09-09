@@ -550,26 +550,42 @@
 
   function BrainDump(props) {
     var st = useState(""), text = st[0], setText = st[1];
-    var lines = text.split("\n").map(function (l) {
-      return l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim();
-    }).filter(Boolean);
+    var today = props.today;
+    var parsed = useMemo(function () {
+      return QD.parseBrainDump(text, today);
+    }, [text, today]);
+
     return h(Sheet, {
       title: "Brain dump", onClose: props.onClose,
       footer: [
         button({ key: "c", className: "btn", onClick: props.onClose }, "Cancel"),
         button({
-          key: "a", className: "btn primary", disabled: lines.length === 0,
-          onClick: function () { props.onAdd(lines); props.onClose(); }
-        }, lines.length === 0 ? "Add tasks"
-          : "Add " + lines.length + (lines.length === 1 ? " task" : " tasks"))
+          key: "a", className: "btn primary", disabled: parsed.length === 0,
+          onClick: function () { props.onAdd(parsed); props.onClose(); }
+        }, parsed.length === 0 ? "Add tasks"
+          : "Add " + parsed.length + (parsed.length === 1 ? " task" : " tasks"))
       ]
     },
-      p(null, "One task per line. Everything lands in today, marked should."),
+      p(null, "One task per line. Times, dates and notes are picked up where it can."),
       textarea({
+        className: parsed.length ? "short" : null,
         value: text, autoFocus: true, spellCheck: true,
-        placeholder: "Ring the plumber\nDraft the Thursday update\nBook flights for October",
+        placeholder: "Ring the plumber\nMRI in Napier at 10:00, Tue 15 Sep. Add 18 Ossian Street to notes\nMust renew car insurance",
         onChange: function (e) { setText(e.target.value); }
-      }));
+      }),
+      parsed.length ? div({ className: "sheetfield" },
+        span({ className: "fieldlabel" }, "What it read"),
+        div({ className: "preview" }, parsed.map(function (r, i) {
+          var due = QD.dueLabelLong(r.dueDate, r.dueTime, today);
+          return div({ className: "pv", key: i },
+            div({ className: "pv-title" }, r.title),
+            div({ className: "pv-meta" },
+              due ? span({ className: "pv-tag when" }, due) : null,
+              span({ className: "pv-tag" }, QD.BUCKET_LABEL[r.bucket]),
+              r.importance !== "should"
+                ? span({ className: "pv-tag" }, QD.IMPORTANCE_LABEL[r.importance]) : null),
+            r.notes ? div({ className: "pv-note" }, r.notes) : null);
+        }))) : null);
   }
 
   function Backup(props) {
@@ -861,9 +877,25 @@
         return t.id === id ? QD.applyPatch(t, changes, today) : t;
       }));
     }
+    function addParsed(specs) {
+      /* Stagger createdAt so a batch keeps the order it was typed in —
+         identical timestamps would fall through to the random id tie-break. */
+      var base = Date.now();
+      var made = specs.map(function (r, i) {
+        return QD.makeTask(r.title, {
+          bucket: r.bucket, importance: r.importance, today: today, now: base + i,
+          notes: r.notes, dueDate: r.dueDate, dueTime: r.dueTime
+        });
+      });
+      commit(tasks.items.concat(made));
+    }
     function addTasks(titles, bucket, importance) {
-      var made = titles.map(function (title) {
-        return QD.makeTask(title, { bucket: bucket || "today", importance: importance || "should", today: today });
+      var base = Date.now();
+      var made = titles.map(function (title, i) {
+        return QD.makeTask(title, {
+          bucket: bucket || "today", importance: importance || "should",
+          today: today, now: base + i
+        });
       });
       commit(tasks.items.concat(made));
     }
@@ -1064,7 +1096,7 @@
         }),
         composer,
         dumping ? h(BrainDump, { onClose: function () { setDumping(false); },
-          onAdd: function (lines) { addTasks(lines, "today", "should"); } }) : null,
+          today: today, onAdd: addParsed }) : null,
         taskSheet);
     }
 
@@ -1163,7 +1195,7 @@
 
       composer,
       dumping ? h(BrainDump, { onClose: function () { setDumping(false); },
-        onAdd: function (lines) { addTasks(lines, "today", "should"); } }) : null,
+        today: today, onAdd: addParsed }) : null,
       backing ? h(Backup, { onClose: function () { setBacking(false); },
         snapshot: snapshot, onRestore: restore }) : null,
       taskSheet);

@@ -16,6 +16,7 @@
   var IMP_ORDER = { must: 0, should: 1, nice: 2 };
 
   var WD_FULL = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  var WD3 = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   var MO3 = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   var WORDS = ["no","one","two","three","four","five","six","seven","eight","nine","ten"];
 
@@ -79,6 +80,25 @@
       else if (n === -1) parts.push("yesterday");
       else if (n > 1 && n < 7) parts.push(WD_FULL[d.getDay()]);
       else parts.push(d.getDate() + " " + MO3[d.getMonth()]);
+    }
+    return parts.join(" \u00b7 ");
+  }
+
+  /* Unambiguous form for the brain-dump preview: the point of that screen is
+     to catch a wrong date, and "Tuesday" cannot be checked at a glance. */
+  function dueLabelLong(dueDate, dueTime, today) {
+    var date = validDate(dueDate), time = validTime(dueTime);
+    if (!date && !time) return "";
+    var parts = [];
+    if (time) parts.push(time);
+    if (date) {
+      var d = keyToDate(date);
+      var text = WD3[d.getDay()] + " " + d.getDate() + " " + MO3[d.getMonth()];
+      if (d.getFullYear() !== keyToDate(today).getFullYear()) text += " " + d.getFullYear();
+      var n = daysBetween(today, date);
+      if (n === 0) text += " (today)";
+      else if (n === 1) text += " (tomorrow)";
+      parts.push(text);
     }
     return parts.join(" \u00b7 ");
   }
@@ -387,6 +407,163 @@
     return { lead: lead, advice: advice };
   }
 
+
+  /* ---------- natural-language capture ----------
+     Rule-based and offline. Recognises a fixed set of shapes; anything it
+     does not recognise is left in the title rather than guessed at, and the
+     UI shows what it read before anything is saved. */
+  var MONTHS = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7,
+                 sep:8, sept:8, oct:9, nov:10, dec:11 };
+  var DOWS = { sun:0, mon:1, tue:2, tues:2, wed:3, weds:3, thu:4, thur:4,
+               thurs:4, fri:5, sat:6 };
+  /* Spelled out in full so "Monitor" is not read as Monday and "Separate"
+     is not read as September. */
+  var MONTH_RE = "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|" +
+                 "jul(?:y)?|aug(?:ust)?|sep(?:t)?(?:ember)?|oct(?:ober)?|" +
+                 "nov(?:ember)?|dec(?:ember)?";
+  var DOW_RE = "mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:r(?:s(?:day)?)?)?|" +
+               "fri(?:day)?|sat(?:urday)?|sun(?:day)?";
+
+  /* A bare day/month means the next time it comes round. */
+  function resolveYear(month, day, today) {
+    var t = keyToDate(today);
+    var candidate = new Date(t.getFullYear(), month, day);
+    if (candidate < new Date(t.getFullYear(), t.getMonth(), t.getDate())) {
+      candidate = new Date(t.getFullYear() + 1, month, day);
+    }
+    return dayKey(candidate);
+  }
+  function nextWeekday(dow, today) {
+    var t = keyToDate(today);
+    var delta = (dow - t.getDay() + 7) % 7;
+    if (delta === 0) delta = 7;
+    return shiftKey(today, delta);
+  }
+  function bucketForDate(date, today) {
+    var n = daysBetween(today, date);
+    if (n <= 0) return "today";
+    if (n <= 7) return "this_week";
+    if (n <= 31) return "this_month";
+    return "future";
+  }
+  function tidy(text) {
+    return String(text)
+      .replace(/\s+/g, " ")
+      .replace(/\s*,\s*,+/g, ", ")
+      .replace(/^[\s,;.:-]+/, "")
+      .replace(/[\s,;.:-]+$/, "")
+      .replace(/\b(?:at|on|in|by|for|from)\s*$/i, "")
+      .replace(/[\s,;.:-]+$/, "")
+      .trim();
+  }
+
+  function parseTaskLine(raw, today) {
+    var line = String(raw == null ? "" : raw)
+      .replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim();
+    if (!line) return null;
+    var original = line;
+    var found = {};
+
+    /* notes: "add X to notes", "note: X", "(X)" */
+    var m = line.match(/\b(?:add|put)\s+([^.]+?)\s+(?:in)?to\s+(?:the\s+)?notes?\b/i) ||
+            line.match(/\bnotes?\s*[:-]\s*([^.]+)$/i);
+    var notes = "";
+    if (m) { notes = tidy(m[1]); line = line.replace(m[0], " "); found.notes = true; }
+
+    /* time: 10am, 2.30pm, 10:00, at 14:30 */
+    var time = null;
+    m = line.match(/\b(?:at\s+)?(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)\b/i);
+    if (m) {
+      var h = parseInt(m[1], 10) % 12;
+      if (/pm/i.test(m[3])) h += 12;
+      time = (h < 10 ? "0" + h : h) + ":" + (m[2] || "00");
+      line = line.replace(m[0], " "); found.time = true;
+    } else {
+      m = line.match(/\b(?:at\s+)?([01]?\d|2[0-3]):([0-5]\d)\b/);
+      if (m) {
+        time = (m[1].length === 1 ? "0" + m[1] : m[1]) + ":" + m[2];
+        line = line.replace(m[0], " "); found.time = true;
+      }
+    }
+
+    /* date */
+    var date = null;
+    m = line.match(new RegExp(
+      "\\b(?:(?:" + DOW_RE + ")\\.?,?\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+(" +
+      MONTH_RE + ")\\.?(?:,?\\s+(\\d{4}))?\\b", "i"));
+    if (m) {
+      var mo = MONTHS[m[2].toLowerCase().slice(0, 3)];
+      date = m[3] ? dayKey(new Date(+m[3], mo, +m[1])) : resolveYear(mo, +m[1], today);
+      line = line.replace(m[0], " "); found.date = true;
+    }
+    if (!date) {
+      m = line.match(new RegExp("\\b(" + MONTH_RE + ")\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?\\b", "i"));
+      if (m) {
+        var mo2 = MONTHS[m[1].toLowerCase().slice(0, 3)];
+        date = m[3] ? dayKey(new Date(+m[3], mo2, +m[2])) : resolveYear(mo2, +m[2], today);
+        line = line.replace(m[0], " "); found.date = true;
+      }
+    }
+    if (!date) {
+      m = line.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+      if (m) {
+        var yr = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : null;
+        date = yr ? dayKey(new Date(yr, +m[2] - 1, +m[1])) : resolveYear(+m[2] - 1, +m[1], today);
+        line = line.replace(m[0], " "); found.date = true;
+      }
+    }
+    if (!date) {
+      if (/\btomorrow\b/i.test(line)) { date = shiftKey(today, 1); line = line.replace(/\btomorrow\b/i, " "); found.date = true; }
+      else if (/\b(today|tonight)\b/i.test(line)) { date = today; line = line.replace(/\b(today|tonight)\b/i, " "); found.date = true; }
+      else {
+        m = line.match(new RegExp("\\b(?:next\\s+)?(" + DOW_RE + ")\\b", "i"));
+        if (m) {
+          date = nextWeekday(DOWS[m[1].toLowerCase().slice(0, 3)], today);
+          line = line.replace(m[0], " "); found.date = true;
+        }
+      }
+    }
+
+    /* importance — only explicit markers, never a bare adjective */
+    var importance = "should";
+    m = line.match(/\b(must[- ]?do|must|urgent|important)\b/i);
+    if (m) { importance = "must"; line = line.replace(m[0], " "); found.importance = true; }
+    else {
+      m = line.match(/\b(nice to have|optional|if i get time)\b/i);
+      if (m) { importance = "nice"; line = line.replace(m[0], " "); found.importance = true; }
+    }
+
+    /* bucket: an explicit phrase wins, otherwise the date decides */
+    var bucket = null;
+    m = line.match(/\b(this week|next week|this month|next month|someday|sometime)\b/i);
+    if (m) {
+      var phrase = m[1].toLowerCase();
+      bucket = /week/.test(phrase) ? "this_week"
+        : /month/.test(phrase) ? "this_month" : "future";
+      line = line.replace(m[0], " "); found.bucket = true;
+    }
+    if (!bucket) bucket = date ? bucketForDate(date, today) : "today";
+
+    /* leading imperatives */
+    line = line.replace(/^\s*(?:add|remember to|remember|need to|must)\s+/i, " ");
+    var title = tidy(line);
+    if (!title) { title = tidy(original); found.fallback = true; }
+    if (title && /^[a-z]/.test(title) && /^[A-Z]/.test(original)) {
+      title = title.charAt(0).toUpperCase() + title.slice(1);
+    }
+
+    return {
+      title: title, dueDate: date, dueTime: time, notes: notes,
+      importance: importance, bucket: bucket, found: found, source: original
+    };
+  }
+
+  function parseBrainDump(text, today) {
+    return String(text == null ? "" : text).split("\n")
+      .map(function (l) { return parseTaskLine(l, today); })
+      .filter(Boolean);
+  }
+
   /* ---------- calendar export ----------
      A static site has no push server, so a reminder is a real calendar event
      with a 30-minute alarm. Floating local time: 12:30 means 12:30 wherever
@@ -441,7 +618,7 @@
     daysBetween: daysBetween, msToKey: msToKey, sinceLabel: sinceLabel,
     numberWord: numberWord, uid: uid,
     validDate: validDate, validTime: validTime,
-    dueLabel: dueLabel, addedLabel: addedLabel,
+    dueLabel: dueLabel, dueLabelLong: dueLabelLong, addedLabel: addedLabel,
     makeTask: makeTask, normTask: normTask, migrate: migrate, rollDay: rollDay,
     applyPatch: applyPatch,
     isOpen: isOpen, isCarryIn: isCarryIn, compareToday: compareToday,
@@ -449,6 +626,8 @@
     pickSuggestions: pickSuggestions, pickStale: pickStale,
     isFixedToday: isFixedToday, fixedPoints: fixedPoints, flexibleToday: flexibleToday,
     pickAnchored: pickAnchored, planLine: planLine, buildICS: buildICS,
+    parseTaskLine: parseTaskLine, parseBrainDump: parseBrainDump,
+    bucketForDate: bucketForDate,
     greetingLine: greetingLine, startHere: startHere, allDoneLine: allDoneLine
   };
 });

@@ -56,6 +56,15 @@ Report the merge in the summary; do not ask permission for it.
 - **Tone is flat.** No streaks, badges, praise or guilt. Carry-ins are stated
   by age, never as failure. Generated copy carries no exclamation marks — a
   test asserts this.
+- **Brain dump parsing is rule-based and offline.** `parseTaskLine` reads
+  times, dates, notes, importance and bucket out of a line. It recognises a
+  fixed set of shapes and leaves anything else in the title — it must never
+  guess. Month and weekday patterns are spelled out in full so "Monitor" is
+  not read as Monday and "Separate" as September. The sheet shows a preview
+  with the date spelled out before anything is saved; do not remove it.
+- **Batch creation staggers `createdAt`.** Tasks made in one go otherwise
+  share a millisecond, and the ranking tie-break falls through to the random
+  id, losing the order they were typed in.
 - **Reminders are calendar events, not push.** iOS Web Push needs a server
   signing with VAPID keys; this app has no server, and Notification Triggers
   is not in Safari. `buildICS` writes a `VALARM` at `-PT30M`.

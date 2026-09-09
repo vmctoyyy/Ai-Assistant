@@ -281,6 +281,24 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
   padding:.875rem;min-height:32vh;resize:none;line-height:1.6;width:100%;
 }
 .sheet textarea.code{font-family:var(--mono);font-size:.75rem;line-height:1.5;min-height:22vh}
+.sheet textarea.short{min-height:16vh}
+.preview{display:flex;flex-direction:column;gap:.5rem}
+.pv{
+  display:flex;flex-direction:column;gap:.3125rem;
+  padding:.625rem .75rem;background:var(--surface);
+  border:1px solid var(--line);border-radius:10px;
+}
+.pv-title{font-size:.9375rem;line-height:1.35;overflow-wrap:anywhere}
+.pv-meta{display:flex;gap:.375rem;flex-wrap:wrap}
+.pv-tag{
+  font-size:.6875rem;color:var(--ink-3);
+  border:1px solid var(--line);border-radius:999px;padding:.125rem .4375rem;
+}
+.pv-tag.when{
+  font-family:var(--mono);color:var(--accent);border-color:var(--accent);
+  font-variant-numeric:tabular-nums;
+}
+.pv-note{font-size:.75rem;color:var(--ink-2);line-height:1.45;overflow-wrap:anywhere}
 .sheet textarea:focus{outline:none;border-color:var(--accent)}
 .sheetfoot{
   flex:none;display:flex;gap:.5rem;justify-content:flex-end;flex-wrap:wrap;
