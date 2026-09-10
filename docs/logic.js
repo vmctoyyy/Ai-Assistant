@@ -707,6 +707,130 @@
     };
   }
 
+
+  /* ---------- shopping carts ----------
+     One cart per shop. A cart's colour is copied from a saved shop at
+     creation and is its own from then on: editing or deleting the shop
+     never reaches back into carts already made. */
+  function blankCarts() { return { carts: [], shops: [], lastSweptOn: null }; }
+
+  function normHex(v) {
+    if (typeof v !== "string") return null;
+    var m = v.trim().match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (!m) return null;
+    var h = m[1];
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    return "#" + h.toLowerCase();
+  }
+  var CART_FALLBACK = "#dfd5c7";
+
+  /* Text sitting on a user-chosen colour has to stay readable, so pick the
+     ink from the colour's relative luminance rather than guessing. */
+  function luminance(hex) {
+    var h = normHex(hex) || CART_FALLBACK;
+    var parts = [h.slice(1, 3), h.slice(3, 5), h.slice(5, 7)].map(function (p) {
+      var c = parseInt(p, 16) / 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * parts[0] + 0.7152 * parts[1] + 0.0722 * parts[2];
+  }
+  function contrastInk(hex) { return luminance(hex) > 0.45 ? "#3b352e" : "#fffcf7"; }
+
+  function normItem(i) {
+    if (!i) return null;
+    var text = i.text != null ? i.text : i.name;      /* v1 shopping called it name */
+    if (!text || !String(text).trim()) return null;
+    var checked = i.checked !== undefined ? !!i.checked : !!i.got;
+    return {
+      id: i.id || uid(),
+      text: String(text).trim(),
+      checked: checked,
+      /* A checked item with no timestamp gets today's, so an upgrade never
+         sweeps something away the moment the app opens. */
+      checkedAt: checked ? (typeof i.checkedAt === "number" ? i.checkedAt
+        : (typeof i.at === "number" ? i.at : Date.now())) : null
+    };
+  }
+  function normCart(c) {
+    if (!c || !c.shop) return null;
+    return {
+      id: c.id || uid(),
+      shop: String(c.shop).trim(),
+      colour: normHex(c.colour) || CART_FALLBACK,
+      items: (Array.isArray(c.items) ? c.items : []).map(normItem).filter(Boolean),
+      createdAt: typeof c.createdAt === "number" ? c.createdAt : Date.now()
+    };
+  }
+  function normShop(sh) {
+    if (!sh || !sh.name || !String(sh.name).trim()) return null;
+    return {
+      id: sh.id || uid(),
+      name: String(sh.name).trim(),
+      colour: normHex(sh.colour) || CART_FALLBACK
+    };
+  }
+  /* Accepts the old flat shopping list and folds it into one cart. */
+  function normCarts(v, legacyShopping) {
+    var out = blankCarts();
+    if (v && typeof v === "object") {
+      out.carts = (Array.isArray(v.carts) ? v.carts : []).map(normCart).filter(Boolean);
+      out.shops = (Array.isArray(v.shops) ? v.shops : []).map(normShop).filter(Boolean);
+      out.lastSweptOn = typeof v.lastSweptOn === "string" ? v.lastSweptOn : null;
+    }
+    if (!out.carts.length && legacyShopping && Array.isArray(legacyShopping.items)
+        && legacyShopping.items.length) {
+      var items = legacyShopping.items.map(normItem).filter(Boolean);
+      if (items.length) {
+        out.carts = [{ id: uid(), shop: "Shopping", colour: CART_FALLBACK,
+                       items: items, createdAt: Date.now() }];
+      }
+    }
+    return out;
+  }
+
+  function makeCart(shop, colour) {
+    return { id: uid(), shop: String(shop).trim(),
+             colour: normHex(colour) || CART_FALLBACK, items: [], createdAt: Date.now() };
+  }
+  function cartsNewestFirst(state) {
+    return state.carts.slice().sort(function (a, b) {
+      if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
+      return a.id < b.id ? 1 : (a.id > b.id ? -1 : 0);
+    });
+  }
+  function shopsByName(state) {
+    return state.shops.slice().sort(function (a, b) {
+      var an = a.name.toLowerCase(), bn = b.name.toLowerCase();
+      if (an !== bn) return an < bn ? -1 : 1;
+      return a.id < b.id ? -1 : 1;
+    });
+  }
+  /* What a closed bubble shows: the first few things still to get. */
+  function cartPreview(cart, n) {
+    return cart.items.filter(function (i) { return !i.checked; }).slice(0, n || 5);
+  }
+  function cartOpenCount(cart) {
+    return cart.items.filter(function (i) { return !i.checked; }).length;
+  }
+
+  /* Midnight sweep. Runs on open rather than on a timer, because a PWA gets
+     no time to run while it is closed. Anything ticked on an earlier day
+     goes; anything ticked today stays until tonight. */
+  function sweepCarts(state, today) {
+    if (!state) return blankCarts();
+    if (state.lastSweptOn === today) return state;
+    var changed = false;
+    var carts = state.carts.map(function (c) {
+      var kept = c.items.filter(function (i) {
+        return !(i.checked && i.checkedAt && msToKey(i.checkedAt) < today);
+      });
+      if (kept.length === c.items.length) return c;
+      changed = true;
+      return { id: c.id, shop: c.shop, colour: c.colour, items: kept, createdAt: c.createdAt };
+    });
+    return { carts: changed ? carts : state.carts, shops: state.shops, lastSweptOn: today };
+  }
+
   /* ---------- calendar export ----------
      A static site has no push server, so a reminder is a real calendar event
      with a 30-minute alarm. Floating local time: 12:30 means 12:30 wherever
@@ -776,6 +900,11 @@
     blankRecap: blankRecap, normRecap: normRecap, archiveCompleted: archiveCompleted,
     pruneRecap: pruneRecap, recapDays: recapDays,
     blankShopping: blankShopping, normShopping: normShopping,
+    blankCarts: blankCarts, normCarts: normCarts, normHex: normHex,
+    contrastInk: contrastInk, luminance: luminance, CART_FALLBACK: CART_FALLBACK,
+    makeCart: makeCart, normShop: normShop, cartsNewestFirst: cartsNewestFirst,
+    shopsByName: shopsByName, cartPreview: cartPreview, cartOpenCount: cartOpenCount,
+    sweepCarts: sweepCarts,
     bucketForDate: bucketForDate,
     greetingLine: greetingLine, startHere: startHere, allDoneLine: allDoneLine
   };

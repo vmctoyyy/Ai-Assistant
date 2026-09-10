@@ -61,7 +61,7 @@
     { id: "quotes", name: "Quotes", tone: 3,
       draw: function () { return strokes("M7 8.5h4v4a3.2 3.2 0 0 1-3.2 3.2",
                                          "M15 8.5h4v4a3.2 3.2 0 0 1-3.2 3.2"); } },
-    { id: "shopping", name: "Shopping List", tone: 4,
+    { id: "shopping", name: "Shopping", tone: 4,
       draw: function () { return strokes("M5 8.5h14l-1.3 9.2a2 2 0 0 1-2 1.7H8.3a2 2 0 0 1-2-1.7z",
                                          "M9.2 8.5V6.8a2.8 2.8 0 0 1 5.6 0v1.7"); } },
     { id: "placeholder-1", name: "", tone: 5, placeholder: true,
@@ -716,47 +716,206 @@
       }));
   }
 
-  /* ---------- shopping ---------- */
-  function ShoppingApp(props) {
-    var s1 = useState(""), name = s1[0], setName = s1[1];
-    var items = props.items;
-    var open = items.filter(function (i) { return !i.got; });
-    var got = items.filter(function (i) { return i.got; });
-    function add(e) {
+  /* ---------- a heavier confirmation ----------
+     Deliberately unlike the app's inline "tap again" affordances: both of
+     these lose items for good, so they get a dialog that names what goes. */
+  function Confirm(props) {
+    return h(Sheet, {
+      title: props.title, onClose: props.onClose,
+      footer: [
+        button({ key: "c", className: "btn", onClick: props.onClose }, "Keep it"),
+        button({ key: "y", className: "btn danger", onClick: function () {
+          props.onConfirm(); props.onClose();
+        } }, props.confirmLabel)
+      ]
+    },
+      div({ className: "confirm-body" },
+        p({ className: "confirm-lead" }, props.lead),
+        props.detail ? p({ className: "confirm-detail" }, props.detail) : null));
+  }
+
+  /* ---------- shopping carts ----------
+     Its own component so typing an item name re-renders the form, not the
+     list of items behind it. */
+  function AddRow(props) {
+    var st = useState(""), text = st[0], setText = st[1];
+    function submit(e) {
       e.preventDefault();
-      var n = name.trim();
-      if (!n) return;
-      props.onAdd(n);
-      setName("");
+      var v = text.trim();
+      if (!v) return;
+      props.onAdd(v);
+      setText("");
       var el = e.currentTarget.querySelector("input");
       if (el) el.focus();
     }
+    return h("form", { className: "shop-add", onSubmit: submit },
+      input({ className: "field", value: text, placeholder: props.placeholder,
+        "aria-label": props.placeholder, enterKeyHint: "done",
+        onChange: function (e) { setText(e.target.value); } }),
+      button({ className: "btn primary", type: "submit", disabled: !text.trim(),
+        onMouseDown: function (e) { e.preventDefault(); } }, "Add"));
+  }
+
+  function ColourField(props) {
+    return div({ className: "colour-field" },
+      span({ className: "swatch", style: { background: props.value } }),
+      input({ type: "color", value: props.value, className: "colour-input",
+        "aria-label": "Colour",
+        onChange: function (e) { props.onChange(e.target.value); } }),
+      span({ className: "colour-hex" }, props.value.toUpperCase()));
+  }
+
+  function CartsApp(props) {
+    var carts = props.carts;
+    return h(Screen, { title: "Shopping", onBack: props.onBack },
+      div({ className: "carts-top" },
+        button({ className: "btn primary wide", onClick: props.onAddCart }, "Add cart"),
+        button({ className: "linkbtn", onClick: props.onShops }, "Shops")),
+      carts.length === 0
+        ? p({ className: "empty-note", style: { padding: "0 1.125rem" } },
+            "No carts yet. Add one for a shop you are heading to.")
+        : div({ className: "cart-grid" }, carts.map(function (c) {
+            var preview = QD.cartPreview(c, 5);
+            var open = QD.cartOpenCount(c);
+            return div({ className: "cart-bubble", key: c.id,
+              style: { background: c.colour } },
+              button({ className: "cart-open", onClick: function () { props.onOpen(c.id); },
+                "aria-label": "Open " + c.shop },
+                div({ className: "cart-head",
+                  style: { color: QD.contrastInk(c.colour) } },
+                  span({ className: "cart-shop" }, c.shop),
+                  span({ className: "cart-count" }, open ? String(open) : "")),
+                div({ className: "cart-inner" },
+                  preview.length
+                    ? preview.map(function (i, n) {
+                        return div({ className: "cart-line", key: n }, i.text);
+                      })
+                    : div({ className: "cart-line empty" }, "Empty"))),
+              button({ className: "cart-menu", onClick: function () { props.onRemove(c.id); },
+                style: { color: QD.contrastInk(c.colour) },
+                "aria-label": "Remove cart: " + c.shop }, icon(I_DOTS, 18)));
+          })));
+  }
+
+  function CartScreen(props) {
+    var cart = props.cart;
+    var ink = QD.contrastInk(cart.colour);
+    var open = cart.items.filter(function (i) { return !i.checked; });
+    var got = cart.items.filter(function (i) { return i.checked; });
     function row(i) {
-      return div({ className: "row" + (i.got ? " done" : ""), key: i.id },
+      return div({ className: "row" + (i.checked ? " done" : ""), key: i.id },
         button({ className: "tickbtn", onClick: function () { props.onToggle(i.id); },
-          "aria-pressed": i.got ? "true" : "false",
-          "aria-label": (i.got ? "Put back on the list: " : "Got: ") + i.name },
-          h(Check, { on: i.got })),
-        span({ className: "rowbody shop-name" }, span({ className: "txt" }, i.name)),
+          "aria-pressed": i.checked ? "true" : "false",
+          "aria-label": (i.checked ? "Put back: " : "Got: ") + i.text },
+          h(Check, { on: i.checked })),
+        span({ className: "rowbody" }, span({ className: "txt" }, i.text)),
         button({ className: "iconbtn", onClick: function () { props.onDelete(i.id); },
-          "aria-label": "Delete: " + i.name }, icon(I_X, 17)));
+          "aria-label": "Delete: " + i.text }, icon(I_X, 17)));
     }
-    return h(Screen, { title: "Shopping list", onBack: props.onBack },
-      h("form", { className: "shop-add", onSubmit: add },
-        input({ className: "field", value: name, placeholder: "Add an item",
-          "aria-label": "Add an item", enterKeyHint: "done",
+    return div({ className: "screen" },
+      div({ className: "bubble cart-full" },
+        div({ className: "cart-banner", style: { background: cart.colour, color: ink } },
+          button({ className: "backbtn", onClick: props.onBack, style: { color: ink },
+            "aria-label": "Back to carts" }, icon(I_BACK, 18), span(null, "Carts")),
+          span({ className: "cart-banner-name" }, cart.shop),
+          button({ className: "iconbtn", onClick: props.onEmpty, style: { color: ink },
+            "aria-label": "Empty cart" }, icon(I_DOTS, 18))),
+        div({ className: "screen-body" },
+          div({ className: "cart-pad" },
+            open.length === 0 && got.length === 0
+              ? p({ className: "empty-note" }, "Nothing in this cart yet.")
+              : null,
+            open.length ? div({ className: "tasks" }, open.map(row)) : null,
+            got.length ? section({ className: "sec", style: { paddingTop: "1.25rem" } },
+              h(Eyebrow, { title: "Got", hint: String(got.length) }),
+              div({ className: "tasks" }, got.map(row)),
+              p({ className: "note", style: { paddingTop: ".75rem" } },
+                "Ticked things clear at midnight.")) : null)),
+        h(AddRow, { placeholder: "Add an item", onAdd: props.onAdd })));
+  }
+
+  function AddCartSheet(props) {
+    var s1 = useState(""), name = s1[0], setName = s1[1];
+    var s2 = useState(QD.CART_FALLBACK), colour = s2[0], setColour = s2[1];
+    var shops = props.shops;
+    return h(Sheet, {
+      title: "Add a cart", onClose: props.onClose,
+      footer: [
+        button({ key: "c", className: "btn", onClick: props.onClose }, "Cancel"),
+        button({ key: "a", className: "btn primary", disabled: !name.trim(),
+          onMouseDown: function (e) { e.preventDefault(); },
+          onClick: function () { props.onCreate(name.trim(), colour); props.onClose(); } },
+          "Create cart")
+      ]
+    },
+      shops.length ? div({ className: "sheetfield" },
+        span({ className: "fieldlabel" }, "A shop you have saved"),
+        div({ className: "shop-chips" }, shops.map(function (sh) {
+          return button({ key: sh.id, className: "shop-chip",
+            style: { background: sh.colour, color: QD.contrastInk(sh.colour) },
+            onClick: function () { props.onCreate(sh.name, sh.colour); props.onClose(); } },
+            sh.name);
+        }))) : null,
+      div({ className: "sheetfield" },
+        span({ className: "fieldlabel" }, shops.length ? "Or a one-off shop" : "Shop"),
+        input({ className: "field", value: name, placeholder: "Shop name",
+          "aria-label": "Shop name", enterKeyHint: "done",
           onChange: function (e) { setName(e.target.value); } }),
-        button({ className: "btn primary", type: "submit", disabled: !name.trim(),
-          onMouseDown: function (e) { e.preventDefault(); } }, "Add")),
-      open.length === 0 && got.length === 0
-        ? p({ className: "empty-note" }, "Nothing on the list.")
-        : null,
-      open.length ? div({ className: "tasks" }, open.map(row)) : null,
-      got.length ? section({ className: "sec", style: { paddingTop: "1.25rem" } },
-        h(Eyebrow, { title: "In the basket", hint: String(got.length) }),
-        div({ className: "tasks" }, got.map(row)),
-        div({ className: "footrow", style: { paddingTop: ".75rem" } },
-          button({ className: "linkbtn", onClick: props.onClearGot }, "Clear these"))) : null);
+        h(ColourField, { value: colour, onChange: setColour }),
+        span({ className: "fieldnote" }, "This does not save the shop for next time.")),
+      div({ className: "sheetfield" },
+        button({ className: "linkbtn", onClick: function () { props.onClose(); props.onShops(); } },
+          "Manage saved shops")));
+  }
+
+  function ShopsApp(props) {
+    var s1 = useState(""), name = s1[0], setName = s1[1];
+    var s2 = useState(QD.CART_FALLBACK), colour = s2[0], setColour = s2[1];
+    var s3 = useState(null), armed = s3[0], setArmed = s3[1];
+    var s4 = useState(null), editing = s4[0], setEditing = s4[1];
+    return h(Screen, { title: "Shops", onBack: props.onBack },
+      div({ className: "cart-pad" },
+        p({ className: "note", style: { marginBottom: "1.25rem" } },
+          "A saved shop is a starting point. Changing one here never changes a cart you have already made."),
+        h("form", { className: "shop-new", onSubmit: function (e) {
+          e.preventDefault();
+          if (!name.trim()) return;
+          props.onAdd(name.trim(), colour);
+          setName(""); setColour(QD.CART_FALLBACK);
+        } },
+          input({ className: "field", value: name, placeholder: "Shop name",
+            "aria-label": "New shop name", enterKeyHint: "done",
+            onChange: function (e) { setName(e.target.value); } }),
+          div({ className: "shop-new-row" },
+            h(ColourField, { value: colour, onChange: setColour }),
+            button({ className: "btn primary", type: "submit", disabled: !name.trim(),
+              onMouseDown: function (e) { e.preventDefault(); } }, "Save shop"))),
+
+        props.shops.length === 0
+          ? p({ className: "empty-note" }, "No saved shops yet.")
+          : div({ className: "shop-list" }, props.shops.map(function (sh) {
+              var isEditing = editing === sh.id;
+              return div({ className: "shop-row", key: sh.id },
+                isEditing
+                  ? div({ className: "shop-edit" },
+                      input({ className: "field", defaultValue: sh.name,
+                        "aria-label": "Rename " + sh.name, enterKeyHint: "done",
+                        onChange: function (e) { props.onRename(sh.id, e.target.value); } }),
+                      h(ColourField, { value: sh.colour,
+                        onChange: function (v) { props.onRecolour(sh.id, v); } }),
+                      button({ className: "btn", onClick: function () { setEditing(null); } }, "Done"))
+                  : h(React.Fragment, null,
+                      span({ className: "swatch big", style: { background: sh.colour } }),
+                      span({ className: "shop-name" }, sh.name),
+                      button({ className: "linkbtn", onClick: function () { setEditing(sh.id); } }, "Edit"),
+                      button({ className: "linkbtn danger" + (armed === sh.id ? " armed" : ""),
+                        onClick: function () {
+                          if (armed === sh.id) { props.onDelete(sh.id); setArmed(null); }
+                          else { setArmed(sh.id); }
+                        },
+                        onBlur: function () { setArmed(null); } },
+                        armed === sh.id ? "Tap again" : "Delete")));
+            }))));
   }
 
   /* ---------- bucket section ---------- */
@@ -795,7 +954,10 @@
     var tasks = s3[0], setTasksRaw = s3[1];
     var s4 = useState(QD.blankRecap), recap = s4[0], setRecapRaw = s4[1];
     var s5 = useState(function () { return { list: [] }; }), quotes = s5[0], setQuotesRaw = s5[1];
-    var s6 = useState(QD.blankShopping), shopping = s6[0], setShoppingRaw = s6[1];
+    var s6 = useState(QD.blankCarts), carts = s6[0], setCartsRaw = s6[1];
+    var sC = useState(null), openCartId = sC[0], setOpenCartId = sC[1];
+    var sA = useState(false), addingCart = sA[0], setAddingCart = sA[1];
+    var sX = useState(null), confirming = sX[0], setConfirming = sX[1];
     /* Markets, Schedule and Habits are gone from the UI. Their keys are read
        once and carried untouched so a backup still round-trips them and the
        data is here if any comes back. */
@@ -818,7 +980,7 @@
     var setTasks    = useCallback(function (v) { setTasksRaw(v);    save("tasks", v); }, []);
     var setRecap    = useCallback(function (v) { setRecapRaw(v);    save("recap", v); }, []);
     var setQuotes   = useCallback(function (v) { setQuotesRaw(v);   save("quotes", v); }, []);
-    var setShopping = useCallback(function (v) { setShoppingRaw(v); save("shopping", v); }, []);
+    var setCarts    = useCallback(function (v) { setCartsRaw(v);    save("carts", v); }, []);
     var setPrefs    = useCallback(function (v) { setPrefsRaw(v);    save("prefs", v); }, []);
 
     /* boot */
@@ -843,6 +1005,7 @@
           return Promise.all([
             readKey("tasks", null), readKey("prefs", null),
             readKey("recap", null), readKey("quotes", null), readKey("shopping", null),
+            readKey("carts", null),
             readKey("habits", null), readKey("markets", null), readKey("schedule", null)
           ]).then(function (res) {
             if (cancelled) return;
@@ -860,13 +1023,17 @@
             setTasksRaw(t);
             setRecapRaw(rc);
             setQuotesRaw(QD.normQuotes(res[3]));
-            setShoppingRaw(QD.normShopping(res[4]));
-            setRetired({ habits: res[5], markets: res[6], schedule: res[7] });
+            /* Carts absorb the old flat shopping list on first run. */
+            var ct = QD.sweepCarts(QD.normCarts(res[5], QD.normShopping(res[4])), day);
+            setCartsRaw(ct);
+            setRetired({ habits: res[6], markets: res[7], schedule: res[8],
+                         shopping: res[4] });
             setPrefsRaw(pf);
             store.ready = store.mode !== "none";
             setLoading(false);
             save("tasks", t);
             save("recap", rc);
+            save("carts", ct);
           });
         })
         .catch(function () {
@@ -901,9 +1068,10 @@
       setToday(now);
       setRecap(QD.pruneRecap(QD.archiveCompleted(recap, tasks.items, today), now));
       setTasks(QD.rollDay(tasks, now));
+      setCarts(QD.sweepCarts(carts, now));
       /* lastBriefShownOn is deliberately left on yesterday, so the first
          visit to Tasks after midnight still opens the brief. */
-    }, [clock, today, loading, tasks, recap, setTasks, setRecap]);
+    }, [clock, today, loading, tasks, recap, carts, setTasks, setRecap, setCarts]);
 
     /* ---- task actions ---- */
     function commit(items) {
@@ -980,21 +1148,65 @@
       }) });
     }
 
-    /* ---- shopping ---- */
-    function addShopping(name) {
-      setShopping({ items: shopping.items.concat([
-        { id: QD.uid(), name: name, got: false, at: Date.now() }]) });
+    /* ---- carts ---- */
+    function putCarts(list) {
+      setCarts({ carts: list, shops: carts.shops, lastSweptOn: carts.lastSweptOn });
     }
-    function toggleShopping(id) {
-      setShopping({ items: shopping.items.map(function (i) {
-        return i.id === id ? { id: i.id, name: i.name, got: !i.got, at: i.at } : i;
-      }) });
+    function putShops(list) {
+      setCarts({ carts: carts.carts, shops: list, lastSweptOn: carts.lastSweptOn });
     }
-    function deleteShopping(id) {
-      setShopping({ items: shopping.items.filter(function (i) { return i.id !== id; }) });
+    function mapCart(id, fn) {
+      putCarts(carts.carts.map(function (c) { return c.id === id ? fn(c) : c; }));
     }
-    function clearGot() {
-      setShopping({ items: shopping.items.filter(function (i) { return !i.got; }) });
+    function createCart(shop, colour) {
+      var made = QD.makeCart(shop, colour);
+      putCarts(carts.carts.concat([made]));
+      setOpenCartId(made.id);
+    }
+    function removeCart(id) {
+      putCarts(carts.carts.filter(function (c) { return c.id !== id; }));
+      if (openCartId === id) setOpenCartId(null);
+    }
+    function addCartItem(id, text) {
+      mapCart(id, function (c) {
+        return Object.assign({}, c, { items: c.items.concat([
+          { id: QD.uid(), text: text, checked: false, checkedAt: null }]) });
+      });
+    }
+    function toggleCartItem(id, itemId) {
+      mapCart(id, function (c) {
+        return Object.assign({}, c, { items: c.items.map(function (i) {
+          if (i.id !== itemId) return i;
+          var next = !i.checked;
+          return { id: i.id, text: i.text, checked: next,
+                   checkedAt: next ? Date.now() : null };
+        }) });
+      });
+    }
+    function deleteCartItem(id, itemId) {
+      mapCart(id, function (c) {
+        return Object.assign({}, c, {
+          items: c.items.filter(function (i) { return i.id !== itemId; }) });
+      });
+    }
+    function emptyCart(id) {
+      mapCart(id, function (c) { return Object.assign({}, c, { items: [] }); });
+    }
+    function addShop(name, colour) {
+      putShops(carts.shops.concat([{ id: QD.uid(), name: name, colour: colour }]));
+    }
+    function renameShop(id, name) {
+      putShops(carts.shops.map(function (sh) {
+        return sh.id === id ? { id: sh.id, name: name, colour: sh.colour } : sh;
+      }));
+    }
+    function recolourShop(id, colour) {
+      putShops(carts.shops.map(function (sh) {
+        return sh.id === id ? { id: sh.id, name: sh.name, colour: colour } : sh;
+      }));
+    }
+    function deleteShop(id) {
+      putShops(carts.shops.filter(function (sh) { return sh.id !== id; }));
     }
 
     /* No push server exists for a static site, so a reminder is a real
@@ -1030,7 +1242,7 @@
       var day = todayKey();
       setTasks({ version: 2, items: [], doneYesterday: 0, lastRollOn: day });
       setRecap(QD.blankRecap());
-      setShopping(QD.blankShopping());
+      setCarts(QD.blankCarts());
       setQuotes({ list: [] });
       setArmed(false); setWarn(null);
     }
@@ -1039,7 +1251,7 @@
       setTasks(QD.rollDay(QD.migrate(data.tasks, day), day));
       setRecap(QD.pruneRecap(QD.normRecap(data.recap), day));
       setQuotes(QD.normQuotes(data.quotes));
-      setShopping(QD.normShopping(data.shopping));
+      setCarts(QD.sweepCarts(QD.normCarts(data.carts, QD.normShopping(data.shopping)), day));
       if (data.habits || data.markets || data.schedule) {
         setRetired({ habits: data.habits, markets: data.markets, schedule: data.schedule });
       }
@@ -1047,9 +1259,10 @@
     }
     var snapshot = useMemo(function () {
       return { app: "quiet-desk", version: 3, exportedAt: new Date().toISOString(),
-        tasks: tasks, recap: recap, quotes: quotes, shopping: shopping,
-        habits: retired.habits, markets: retired.markets, schedule: retired.schedule };
-    }, [tasks, recap, quotes, shopping, retired]);
+        tasks: tasks, recap: recap, quotes: quotes, carts: carts,
+        habits: retired.habits, markets: retired.markets, schedule: retired.schedule,
+        shopping: retired.shopping };
+    }, [tasks, recap, quotes, carts, retired]);
 
     /* ---- derived ---- */
     var rankedToday = useMemo(function () { return QD.rankToday(tasks.items, today); }, [tasks.items, today]);
@@ -1060,6 +1273,11 @@
     var todayQuote = useMemo(function () {
       return QD.quoteForDay(quoteList, today);
     }, [quoteList, today]);
+    var cartList = useMemo(function () { return QD.cartsNewestFirst(carts); }, [carts]);
+    var shopList = useMemo(function () { return QD.shopsByName(carts); }, [carts]);
+    var openCart = useMemo(function () {
+      return carts.carts.filter(function (c) { return c.id === openCartId; })[0] || null;
+    }, [carts, openCartId]);
     var recapWeek = useMemo(function () {
       return QD.recapDays(recap, tasks.items, today, 7);
     }, [recap, tasks.items, today]);
@@ -1242,12 +1460,64 @@
       return h(React.Fragment, null,
         h(RecapApp, { onBack: home, days: recapWeek, today: today }), overlays);
     }
-    if (route === "shopping") {
+    if (route === "shopping" || route === "shops") {
+      var sheets = h(React.Fragment, null,
+        addingCart ? h(AddCartSheet, {
+          shops: shopList, onClose: function () { setAddingCart(false); },
+          onCreate: createCart, onShops: function () { setRoute("shops"); }
+        }) : null,
+        confirming ? h(Confirm, confirming) : null);
+
+      if (route === "shops") {
+        return h(React.Fragment, null,
+          h(ShopsApp, { onBack: function () { setRoute("shopping"); }, shops: shopList,
+            onAdd: addShop, onRename: renameShop, onRecolour: recolourShop,
+            onDelete: deleteShop }),
+          sheets, overlays);
+      }
+      if (openCart) {
+        return h(React.Fragment, null,
+          h(CartScreen, {
+            cart: openCart,
+            onBack: function () { setOpenCartId(null); },
+            onAdd: function (text) { addCartItem(openCart.id, text); },
+            onToggle: function (i) { toggleCartItem(openCart.id, i); },
+            onDelete: function (i) { deleteCartItem(openCart.id, i); },
+            onEmpty: function () {
+              setConfirming({
+                title: "Empty this cart?",
+                lead: "Everything in " + openCart.shop + " goes — " +
+                      openCart.items.length +
+                      (openCart.items.length === 1 ? " item" : " items") + ", ticked or not.",
+                detail: "There is no undo for this.",
+                confirmLabel: "Empty it",
+                onConfirm: function () { emptyCart(openCart.id); },
+                onClose: function () { setConfirming(null); }
+              });
+            }
+          }),
+          sheets, overlays);
+      }
       return h(React.Fragment, null,
-        h(ShoppingApp, { onBack: home, items: shopping.items,
-          onAdd: addShopping, onToggle: toggleShopping,
-          onDelete: deleteShopping, onClearGot: clearGot }),
-        overlays);
+        h(CartsApp, { onBack: home, carts: cartList,
+          onAddCart: function () { setAddingCart(true); },
+          onShops: function () { setRoute("shops"); },
+          onOpen: setOpenCartId,
+          onRemove: function (id) {
+            var c = carts.carts.filter(function (x) { return x.id === id; })[0];
+            if (!c) return;
+            setConfirming({
+              title: "Remove this cart?",
+              lead: "The " + c.shop + " cart goes, along with its " + c.items.length +
+                    (c.items.length === 1 ? " item" : " items") + ".",
+              detail: "There is no undo for this.",
+              confirmLabel: "Remove it",
+              onConfirm: function () { removeCart(id); },
+              onClose: function () { setConfirming(null); }
+            });
+          }
+        }),
+        sheets, overlays);
     }
     return h(Home, { today: today, quote: todayQuote, warn: warn, onOpen: openApp });
   }

@@ -728,6 +728,126 @@ t("a missing or malformed list gives an empty one", function () {
   });
 });
 
+console.log("\nshopping carts");
+function cart(o) {
+  o = o || {};
+  return { id: o.id || "c1", shop: o.shop || "Tesco", colour: o.colour || "#e4002b",
+           items: o.items || [], createdAt: o.createdAt || 1000 };
+}
+function item(id, checked, checkedKey) {
+  return { id: id, text: id, checked: !!checked,
+           checkedAt: checked ? ms(checkedKey || TODAY, 10) : null };
+}
+t("hex is validated and normalised, junk is refused", function () {
+  assert.strictEqual(QD.normHex("#F00"), "#ff0000");
+  assert.strictEqual(QD.normHex("e4002b"), "#e4002b");
+  assert.strictEqual(QD.normHex("#E4002B"), "#e4002b");
+  ["", "red", "#12", "#1234567", null, 42].forEach(function (bad) {
+    assert.strictEqual(QD.normHex(bad), null, String(bad));
+  });
+});
+t("text on a shop colour stays readable", function () {
+  assert.strictEqual(QD.contrastInk("#e4002b"), "#fffcf7", "light ink on red");
+  assert.strictEqual(QD.contrastInk("#ffe500"), "#3b352e", "dark ink on yellow");
+  assert.strictEqual(QD.contrastInk("#000000"), "#fffcf7");
+  assert.strictEqual(QD.contrastInk("#ffffff"), "#3b352e");
+  assert.strictEqual(QD.contrastInk("nonsense"), "#3b352e", "falls back safely");
+});
+t("a cart made from a saved shop copies the colour, it does not link to it", function () {
+  var shop = QD.normShop({ name: "Warehouse", colour: "#e4002b" });
+  var c = QD.makeCart(shop.name, shop.colour);
+  shop.colour = "#00ff00";
+  assert.strictEqual(c.colour, "#e4002b", "editing the shop must not reach the cart");
+  assert.strictEqual(c.shop, "Warehouse");
+  assert.deepStrictEqual(c.items, []);
+});
+t("carts list newest first", function () {
+  var st = { carts: [cart({ id: "old", createdAt: 1 }), cart({ id: "new", createdAt: 9 })],
+             shops: [], lastSweptOn: null };
+  assert.deepStrictEqual(QD.cartsNewestFirst(st).map(function (c) { return c.id; }), ["new", "old"]);
+});
+t("shops list by name, case-insensitively", function () {
+  var st = { carts: [], lastSweptOn: null, shops: [
+    QD.normShop({ name: "pak'nSave" }), QD.normShop({ name: "Countdown" }),
+    QD.normShop({ name: "Warehouse" })] };
+  assert.deepStrictEqual(QD.shopsByName(st).map(function (s) { return s.name; }),
+    ["Countdown", "pak'nSave", "Warehouse"]);
+});
+t("a closed bubble previews up to five unchecked items", function () {
+  var c = cart({ items: [item("a"), item("b", true), item("c"), item("d"), item("e"),
+                         item("f"), item("g")] });
+  assert.deepStrictEqual(QD.cartPreview(c, 5).map(function (i) { return i.id; }),
+    ["a", "c", "d", "e", "f"]);
+  assert.strictEqual(QD.cartOpenCount(c), 6);
+});
+
+console.log("\nmidnight sweep");
+t("items ticked on an earlier day are swept", function () {
+  var st = { lastSweptOn: "2026-09-08", shops: [], carts: [
+    cart({ items: [item("keep"), item("goneYesterday", true, "2026-09-08")] })] };
+  var out = QD.sweepCarts(st, TODAY);
+  assert.deepStrictEqual(out.carts[0].items.map(function (i) { return i.id; }), ["keep"]);
+  assert.strictEqual(out.lastSweptOn, TODAY);
+});
+t("items ticked today survive until tonight", function () {
+  var st = { lastSweptOn: "2026-09-08", shops: [], carts: [
+    cart({ items: [item("tickedToday", true, TODAY)] })] };
+  assert.deepStrictEqual(QD.sweepCarts(st, TODAY).carts[0].items.map(function (i) { return i.id; }),
+    ["tickedToday"]);
+});
+t("unchecked items are never swept, however old", function () {
+  var st = { lastSweptOn: "2020-01-01", shops: [], carts: [cart({ items: [item("old")] })] };
+  assert.deepStrictEqual(QD.sweepCarts(st, TODAY).carts[0].items.length, 1);
+});
+t("it sweeps every cart, and only carts", function () {
+  var st = { lastSweptOn: "2026-09-08", shops: [QD.normShop({ name: "S" })], carts: [
+    cart({ id: "one", items: [item("a", true, "2026-09-08")] }),
+    cart({ id: "two", items: [item("b", true, "2026-09-01"), item("c")] })] };
+  var out = QD.sweepCarts(st, TODAY);
+  assert.deepStrictEqual(out.carts[0].items, []);
+  assert.deepStrictEqual(out.carts[1].items.map(function (i) { return i.id; }), ["c"]);
+  assert.strictEqual(out.shops.length, 1, "shops untouched");
+});
+t("sweeping twice in a day is a no-op", function () {
+  var st = { lastSweptOn: TODAY, shops: [], carts: [cart({ items: [item("x", true, "2020-01-01")] })] };
+  assert.strictEqual(QD.sweepCarts(st, TODAY), st, "same object, no work done");
+});
+t("a checked item with no timestamp is given one rather than vanishing", function () {
+  var out = QD.normCarts({ carts: [{ id: "c", shop: "S", items: [
+    { id: "i", text: "Thing", checked: true }] }], shops: [] });
+  assert.ok(out.carts[0].items[0].checkedAt, "timestamp minted");
+  assert.strictEqual(QD.sweepCarts(out, TODAY).carts[0].items.length, 1, "survives this sweep");
+});
+
+console.log("\ncarts: migration and junk");
+t("the old flat shopping list folds into one cart", function () {
+  var out = QD.normCarts(null, { items: [
+    { id: "a", name: "Oat milk", got: false },
+    { id: "b", name: "Bread", got: true, at: 1234 }] });
+  assert.strictEqual(out.carts.length, 1);
+  assert.strictEqual(out.carts[0].shop, "Shopping");
+  assert.deepStrictEqual(out.carts[0].items.map(function (i) { return i.text; }), ["Oat milk", "Bread"]);
+  assert.strictEqual(out.carts[0].items[1].checked, true);
+  assert.strictEqual(out.carts[0].items[1].checkedAt, 1234);
+});
+t("existing carts are never overwritten by the old list", function () {
+  var out = QD.normCarts({ carts: [cart({ id: "mine" })], shops: [] },
+    { items: [{ id: "x", name: "Ignore me" }] });
+  assert.deepStrictEqual(out.carts.map(function (c) { return c.id; }), ["mine"]);
+});
+t("an empty old list migrates to nothing", function () {
+  assert.deepStrictEqual(QD.normCarts(null, { items: [] }).carts, []);
+  assert.deepStrictEqual(QD.normCarts(null, null).carts, []);
+});
+t("junk carts, shops and items are dropped", function () {
+  var out = QD.normCarts({ carts: [null, { shop: "" }, { shop: "Real", items: [null, { text: "" }, { text: "Kept" }] }],
+                           shops: [null, { name: "" }, { name: "Good", colour: "zzz" }] });
+  assert.strictEqual(out.carts.length, 1);
+  assert.deepStrictEqual(out.carts[0].items.map(function (i) { return i.text; }), ["Kept"]);
+  assert.strictEqual(out.shops.length, 1);
+  assert.strictEqual(out.shops[0].colour, QD.CART_FALLBACK, "a bad colour falls back");
+});
+
 console.log("\nsinceLabel");
 t("reads naturally across the week", function () {
   assert.strictEqual(QD.sinceLabel("2026-09-08", TODAY), "yesterday");
