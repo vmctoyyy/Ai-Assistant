@@ -4,7 +4,7 @@ A personal daily dashboard for one user, installed as a PWA on an iPhone home
 screen. Static site in `docs/`, served by GitHub Pages from `main`.
 
 The app is a home screen plus four apps: **Tasks**, **Recap**, **Quotes**,
-**Shopping List**, and two non-tappable placeholders. Home is a fixed
+**Shopping** (carts), and two non-tappable placeholders. Home is a fixed
 non-scrolling page — a 25% header (date + the day's quote) over a 75% grid of
 six icons.
 
@@ -104,6 +104,18 @@ Report the merge in the summary; do not ask permission for it.
   opened each day (`openApp`), not when the app launches. The rollover
   deliberately leaves `lastBriefShownOn` on yesterday so the next visit shows
   it.
+- **A cart's colour is a copy, not a link.** `makeCart` copies a saved
+  shop's name and colour at creation. Editing or deleting the shop must never
+  reach back into carts already made — there are assertions for both.
+- **Ticked cart items are swept at midnight, not on tick.** `sweepCarts`
+  drops items whose `checkedAt` falls on an earlier day, and runs on open and
+  at rollover — a PWA gets no time to run while closed. It early-returns when
+  `lastSweptOn` is today, so seed fixtures with an *earlier* date or the sweep
+  correctly does nothing and the test looks broken.
+- **Emptying a cart and removing a cart get a real dialog**, not the inline
+  "tap again" used elsewhere. Both are unrecoverable, so the dialog names what
+  goes and how much of it. Do not downgrade them to the routine affordance.
+- **Text on a user-chosen colour uses `contrastInk`**, never a fixed ink.
 - **Reminders are calendar events, not push.** iOS Web Push needs a server
   signing with VAPID keys; this app has no server, and Notification Triggers
   is not in Safari. `buildICS` writes a `VALARM` at `-PT30M`.
@@ -137,6 +149,11 @@ the schedule and markets sections took `.field`, `.btn`, `.disc`, `.meta` and
 `.chev` with them — shared controls that happened to sit there — and every
 input in the app fell back to a browser default border. The tests all passed;
 a screenshot caught it.
+
+A controlled `<input type="color">` ignores a directly assigned `.value` —
+React does not see it. Tests must drive it through the native value setter
+plus an `input` event, as `test/ui.test.mjs` does. A test that skips this
+reports every colour as the fallback and looks like an app bug.
 
 Watch for guards that disable a gesture wholesale: `if (e.target.closest("button"))`
 in the swipe handler made swipe-to-delete unreachable for months, because the
