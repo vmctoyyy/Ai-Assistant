@@ -1,5 +1,12 @@
 # Ai-Assistant
 
+Two unrelated projects share this repository.
+
+- **Quiet Desk** — a personal daily dashboard, in [`docs/`](docs/). Static site,
+  no build step, served by GitHub Pages from `main`.
+- **Last Card** — a pass-and-play card game, in [`last-card/`](last-card/).
+  TypeScript, React and Vite, with its own package and test suites.
+
 ## Quiet Desk
 
 A personal daily dashboard for iPhone. Three priorities, a running task list,
