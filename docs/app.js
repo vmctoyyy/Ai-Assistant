@@ -610,7 +610,7 @@
   /* ---------- home ---------- */
   function Home(props) {
     var d = QD.keyToDate(props.today);
-    return div({ className: "home" },
+    return div({ className: "home" + (props.anim ? " " + props.anim : "") },
       div({ className: "home-head" },
         div({ className: "hh-date" }, nzDate(d)),
         props.quote ? div({ className: "hh-quote" }, props.quote.text) : null),
@@ -636,7 +636,7 @@
   /* ---------- app screen shell ---------- */
   function Screen(props) {
     return div({ className: "screen" },
-      div({ className: "bubble" },
+      div({ className: "bubble" + (props.anim ? " " + props.anim : "") },
         div({ className: "screen-top" },
           button({ className: "backbtn", onClick: props.onBack, "aria-label": "Back to home" },
             icon(I_BACK, 18), span(null, "Back")),
@@ -660,7 +660,7 @@
       props.onAdd(t, source.trim());
       setText(""); setSource("");
     }
-    return h(Screen, { title: "Quotes", onBack: props.onBack },
+    return h(Screen, { title: "Quotes", onBack: props.onBack, anim: props.anim },
       props.quote ? div({ className: "quote-today" },
         div({ className: "qt-text" }, props.quote.text),
         props.quote.source ? div({ className: "qt-source" }, props.quote.source) : null,
@@ -697,7 +697,7 @@
   function RecapApp(props) {
     var days = props.days;
     var total = days.reduce(function (n, d) { return n + d.items.length; }, 0);
-    return h(Screen, { title: "Recap", onBack: props.onBack },
+    return h(Screen, { title: "Recap", onBack: props.onBack, anim: props.anim },
       p({ className: "recap-lead" }, total === 0
         ? "Nothing finished in the last seven days."
         : total + (total === 1 ? " thing" : " things") + " finished in the last seven days."),
@@ -767,7 +767,7 @@
 
   function CartsApp(props) {
     var carts = props.carts;
-    return h(Screen, { title: "Shopping", onBack: props.onBack },
+    return h(Screen, { title: "Shopping", onBack: props.onBack, anim: props.anim },
       div({ className: "carts-top" },
         button({ className: "btn primary wide", onClick: props.onAddCart }, "Add cart"),
         button({ className: "linkbtn", onClick: props.onShops }, "Shops")),
@@ -813,7 +813,7 @@
           "aria-label": "Delete: " + i.text }, icon(I_X, 17)));
     }
     return div({ className: "screen" },
-      div({ className: "bubble cart-full" },
+      div({ className: "bubble cart-full" + (props.anim ? " " + props.anim : "") },
         div({ className: "cart-banner", style: { background: cart.colour, color: ink } },
           button({ className: "backbtn", onClick: props.onBack, style: { color: ink },
             "aria-label": "Back to carts" }, icon(I_BACK, 18), span(null, "Carts")),
@@ -879,7 +879,7 @@
     var s2 = useState(QD.CART_FALLBACK), colour = s2[0], setColour = s2[1];
     var s3 = useState(null), armed = s3[0], setArmed = s3[1];
     var s4 = useState(null), editing = s4[0], setEditing = s4[1];
-    return h(Screen, { title: "Shops", onBack: props.onBack },
+    return h(Screen, { title: "Shops", onBack: props.onBack, anim: props.anim },
       div({ className: "cart-pad" },
         p({ className: "note", style: { marginBottom: "1.25rem" } },
           "A saved shop is a starting point. Changing one here never changes a cart you have already made."),
@@ -983,6 +983,13 @@
     var s19 = useState(null), editingId = s19[0], setEditingId = s19[1];
     var s20 = useState("home"), route = s20[0], setRoute = s20[1];
     var s21 = useState(""), build = s21[0], setBuild = s21[1];
+    /* Which way the last move went, so the incoming screen animates like iOS:
+       an app comes forward, screens inside push and pop, home settles back. */
+    var s22 = useState({ anim: "a-in", n: 0 }), nav = s22[0], setNav = s22[1];
+    var go = useCallback(function (anim, fn) {
+      setNav(function (prev) { return { anim: anim, n: prev.n + 1 }; });
+      fn();
+    }, []);
 
     var setTasks    = useCallback(function (v) { setTasksRaw(v);    save("tasks", v); }, []);
     var setRecap    = useCallback(function (v) { setRecapRaw(v);    save("recap", v); }, []);
@@ -1189,7 +1196,7 @@
         shops: alsoSave ? QD.addShopIfNew(carts.shops, made.shop, made.colour) : carts.shops,
         lastSweptOn: carts.lastSweptOn
       });
-      setOpenCartId(made.id);
+      go("a-push", function () { setOpenCartId(made.id); });
     }
     function removeCart(id) {
       putCarts(carts.carts.filter(function (c) { return c.id !== id; }));
@@ -1386,29 +1393,32 @@
         snapshot: snapshot, onRestore: restore }) : null,
       taskSheet);
 
-    function home() { setBriefOpen(false); setRoute("home"); }
+    function home() { go("a-in", function () { setBriefOpen(false); setRoute("home"); }); }
 
     /* The morning brief belongs to Tasks: it opens the first time Tasks is
        visited each day, and is reachable from its header after that. */
     function openApp(id) {
-      if (id === "tasks" && prefs.lastBriefShownOn !== today) {
-        setBriefOpen(true);
-        setPrefs({ installHintDismissed: prefs.installHintDismissed,
-                   lastBriefShownOn: today, lastStaleAskOn: prefs.lastStaleAskOn });
-      }
-      setRoute(id);
+      go("a-open", function () {
+        if (id === "tasks" && prefs.lastBriefShownOn !== today) {
+          setBriefOpen(true);
+          setPrefs({ installHintDismissed: prefs.installHintDismissed,
+                     lastBriefShownOn: today, lastStaleAskOn: prefs.lastStaleAskOn });
+        }
+        setRoute(id);
+      });
     }
 
     /* ---------- home ---------- */
     if (route === "home") {
-      return h(Home, { today: today, quote: todayQuote, warn: warn, onOpen: openApp });
+      return h(Home, { key: nav.n, anim: nav.anim, today: today, quote: todayQuote,
+        warn: warn, onOpen: openApp });
     }
 
     /* ---------- tasks ---------- */
     if (route === "tasks") {
       if (briefOpen) {
         return h(React.Fragment, null,
-          h(Screen, { title: null, onBack: home, footer: composer },
+          h(Screen, { key: nav.n, anim: nav.anim, title: null, onBack: home, footer: composer },
             h(Brief, {
               today: today, items: tasks.items, prefs: prefs,
               onToggle: toggleTask, onDelete: deleteTask, onOptions: setEditingId,
@@ -1419,7 +1429,7 @@
       }
       var d = QD.keyToDate(today);
       return h(React.Fragment, null,
-        h(Screen, { title: "Tasks", onBack: home, footer: composer },
+        h(Screen, { key: nav.n, anim: nav.anim, title: "Tasks", onBack: home, footer: composer },
           div({ className: "page" },
             header({ className: "head" },
               span({ className: "wd" }, WD[d.getDay()]),
@@ -1481,25 +1491,28 @@
     /* ---------- the other apps ---------- */
     if (route === "quotes") {
       return h(React.Fragment, null,
-        h(QuotesApp, { onBack: home, quote: todayQuote, list: quoteList,
+        h(QuotesApp, { key: nav.n, anim: nav.anim, onBack: home, quote: todayQuote, list: quoteList,
           onAdd: addQuote, onDelete: deleteQuote, onAdoptDefaults: adoptDefaults }),
         overlays);
     }
     if (route === "recap") {
       return h(React.Fragment, null,
-        h(RecapApp, { onBack: home, days: recapWeek, today: today }), overlays);
+        h(RecapApp, { key: nav.n, anim: nav.anim, onBack: home, days: recapWeek, today: today }), overlays);
     }
     if (route === "shopping" || route === "shops") {
       var sheets = h(React.Fragment, null,
         addingCart ? h(AddCartSheet, {
           shops: shopList, onClose: function () { setAddingCart(false); },
-          onCreate: createCart, onShops: function () { setRoute("shops"); }
+          onCreate: createCart,
+          onShops: function () { go("a-push", function () { setRoute("shops"); }); }
         }) : null,
         confirming ? h(Confirm, confirming) : null);
 
       if (route === "shops") {
         return h(React.Fragment, null,
-          h(ShopsApp, { onBack: function () { setRoute("shopping"); }, shops: shopList,
+          h(ShopsApp, { key: nav.n, anim: nav.anim,
+            onBack: function () { go("a-pop", function () { setRoute("shopping"); }); },
+            shops: shopList,
             onAdd: addShop, onRename: renameShop, onRecolour: recolourShop,
             onDelete: deleteShop }),
           sheets, overlays);
@@ -1507,8 +1520,9 @@
       if (openCart) {
         return h(React.Fragment, null,
           h(CartScreen, {
+            key: nav.n, anim: nav.anim,
             cart: openCart,
-            onBack: function () { setOpenCartId(null); },
+            onBack: function () { go("a-pop", function () { setOpenCartId(null); }); },
             onAdd: function (text) { addCartItem(openCart.id, text); },
             onToggle: function (i) { toggleCartItem(openCart.id, i); },
             onDelete: function (i) { deleteCartItem(openCart.id, i); },
@@ -1528,10 +1542,10 @@
           sheets, overlays);
       }
       return h(React.Fragment, null,
-        h(CartsApp, { onBack: home, carts: cartList,
+        h(CartsApp, { key: nav.n, anim: nav.anim, onBack: home, carts: cartList,
           onAddCart: function () { setAddingCart(true); },
-          onShops: function () { setRoute("shops"); },
-          onOpen: setOpenCartId,
+          onShops: function () { go("a-push", function () { setRoute("shops"); }); },
+          onOpen: function (id) { go("a-push", function () { setOpenCartId(id); }); },
           onRemove: function (id) {
             var c = carts.carts.filter(function (x) { return x.id === id; })[0];
             if (!c) return;
@@ -1548,7 +1562,8 @@
         }),
         sheets, overlays);
     }
-    return h(Home, { today: today, quote: todayQuote, warn: warn, onOpen: openApp });
+    return h(Home, { key: nav.n, anim: nav.anim, today: today, quote: todayQuote,
+      warn: warn, onOpen: openApp });
   }
 
   ReactDOM.createRoot(document.getElementById("root")).render(h(App));

@@ -50,6 +50,11 @@
   --tile-5:#F6F1E9;
   --tap:52px;
   --bubble-r:30px;
+  /* iOS's own curve and timings: ~0.35s for a push or pop, 0.4s for a sheet
+     coming up, on a decelerating ease that starts fast and settles. */
+  --ease-ios:cubic-bezier(.32,.72,0,1);
+  --t-screen:340ms;
+  --t-sheet:400ms;
   --wrap:34rem;
   --serif:"Newsreader",ui-serif,Georgia,"Times New Roman",serif;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
@@ -214,12 +219,13 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
   background:rgba(74,58,40,.28);backdrop-filter:blur(2px);
   display:flex;align-items:flex-end;justify-content:center;
   padding:.5rem .5rem calc(.5rem + env(safe-area-inset-bottom,0px));
+  animation:scrimIn 240ms ease-out both;
 }
 .sheet{
   background:var(--surface);width:100%;max-width:var(--wrap);
   border-radius:var(--bubble-r);border:0;
   box-shadow:0 2px 6px rgba(90,72,50,.08), 0 16px 40px rgba(90,72,50,.12);
-  animation:bubbleIn .22s cubic-bezier(.22,.7,.3,1) both;
+  animation:sheetUp var(--t-sheet) var(--ease-ios) both;
   padding:1.25rem 1.125rem 1.25rem;
   display:flex;flex-direction:column;gap:.875rem;
   max-height:88dvh;overflow:hidden;
@@ -424,14 +430,14 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
   display:grid;place-items:center;
   color:var(--ink-2);
   box-shadow:0 1px 2px rgba(90,72,50,.05), 0 6px 16px rgba(90,72,50,.045);
-  transition:transform .18s ease, opacity .18s ease;
+  transition:transform .22s var(--ease-ios), opacity .22s var(--ease-ios);
 }
 .tile.tone1{background:var(--tile-1)}
 .tile.tone2{background:var(--tile-2)}
 .tile.tone3{background:var(--tile-3)}
 .tile.tone4{background:var(--tile-4)}
 .tile.tone5{background:var(--tile-5);box-shadow:none;color:var(--ink-3);opacity:.55}
-.tile:not(.placeholder):active{transform:scale(.96);opacity:.86}
+.tile:not(.placeholder):active{transform:scale(.955);opacity:.85}
 .tile-art{width:44%;height:44%}
 .home-warn{
   flex:none;margin:0 1.5rem 1rem;padding:.75rem .875rem;
@@ -455,12 +461,19 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
   border-radius:var(--bubble-r);
   overflow:hidden;
   box-shadow:0 1px 2px rgba(90,72,50,.05), 0 10px 30px rgba(90,72,50,.07);
-  animation:bubbleIn .24s cubic-bezier(.22,.7,.3,1) both;
 }
-@keyframes bubbleIn{
-  from{opacity:0;transform:scale(.985)}
-  to{opacity:1;transform:scale(1)}
-}
+/* An app comes forward from its icon; screens inside it push and pop
+   sideways; home settles back in behind. */
+@keyframes screenOpen{ from{opacity:0;transform:scale(.955)} to{opacity:1;transform:scale(1)} }
+@keyframes screenPush{ from{opacity:0;transform:translateX(9%)}  to{opacity:1;transform:translateX(0)} }
+@keyframes screenPop { from{opacity:0;transform:translateX(-7%)} to{opacity:1;transform:translateX(0)} }
+@keyframes homeIn   { from{opacity:0;transform:scale(1.03)}      to{opacity:1;transform:scale(1)} }
+@keyframes sheetUp  { from{transform:translateY(100%)}           to{transform:translateY(0)} }
+@keyframes scrimIn  { from{opacity:0} to{opacity:1} }
+.a-open{animation:screenOpen var(--t-screen) var(--ease-ios) both}
+.a-push{animation:screenPush var(--t-screen) var(--ease-ios) both}
+.a-pop {animation:screenPop  var(--t-screen) var(--ease-ios) both}
+.a-in  {animation:homeIn     var(--t-screen) var(--ease-ios) both}
 .screen-top{
   flex:none;background:var(--surface);
   display:flex;align-items:center;gap:.75rem;
@@ -540,7 +553,7 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 .cart-bubble{
   position:relative;border-radius:20px;padding:4px;
   box-shadow:0 1px 2px rgba(90,72,50,.05), 0 6px 16px rgba(90,72,50,.06);
-  transition:transform .18s ease, opacity .18s ease;
+  transition:transform .22s var(--ease-ios), opacity .22s var(--ease-ios);
 }
 .cart-bubble:active{transform:scale(.98)}
 .cart-open{display:block;width:100%;text-align:left}

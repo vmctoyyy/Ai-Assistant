@@ -22,6 +22,13 @@ await new Promise(r => setTimeout(r, 800));
 const b = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
 let pass = 0, fail = 0;
 const check = (n, ok, d) => { ok ? pass++ : fail++; console.log(`  ${ok?'ok  ':'FAIL'} ${n}${d?' — '+d:''}`); };
+/* Screens and sheets now animate in on the iOS curve, so anything that
+   measures geometry has to wait for them to come to rest — a sheet read the
+   instant it appears is still translated off the bottom of the screen. */
+const settled = async (pg) => {
+  await pg.evaluate(() => Promise.all(
+    document.getAnimations().map(a => a.finished.catch(() => {}))));
+};
 /* Expand a collapsed section without collapsing an already-open one — an
    earlier step may have left it either way. */
 const expand = async (pg, label) => {
@@ -46,6 +53,7 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   }));
   await pg.goto(`${BASE}/index.html`);
   await pg.waitForSelector('.home', { timeout: 10000 });
+  await settled(pg);
 
   console.log('-- home screen --');
   const homeGeo = await pg.evaluate(() => {
@@ -125,6 +133,7 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   await expand(pg, 'This week');
   await pg.locator('button[aria-label="Options for Dentist"]').tap();
   await pg.waitForSelector('.sheet');
+  await settled(pg);
   const when = () => pg.locator('.sheetfield', { hasText: 'WHEN' });
   const imp = () => pg.locator('.sheetfield', { hasText: 'IMPORTANCE' });
   check('footer visible without scrolling', await pg.locator('.sheetfoot').isVisible());
