@@ -837,6 +837,7 @@
   function AddCartSheet(props) {
     var s1 = useState(""), name = s1[0], setName = s1[1];
     var s2 = useState(QD.CART_FALLBACK), colour = s2[0], setColour = s2[1];
+    var s3 = useState(false), keep = s3[0], setKeep = s3[1];
     var shops = props.shops;
     return h(Sheet, {
       title: "Add a cart", onClose: props.onClose,
@@ -844,7 +845,7 @@
         button({ key: "c", className: "btn", onClick: props.onClose }, "Cancel"),
         button({ key: "a", className: "btn primary", disabled: !name.trim(),
           onMouseDown: function (e) { e.preventDefault(); },
-          onClick: function () { props.onCreate(name.trim(), colour); props.onClose(); } },
+          onClick: function () { props.onCreate(name.trim(), colour, keep); props.onClose(); } },
           "Create cart")
       ]
     },
@@ -862,7 +863,12 @@
           "aria-label": "Shop name", enterKeyHint: "done",
           onChange: function (e) { setName(e.target.value); } }),
         h(ColourField, { value: colour, onChange: setColour }),
-        span({ className: "fieldnote" }, "This does not save the shop for next time.")),
+        div({ className: "togglerow" },
+          h(Toggle, { on: keep, label: "Save this shop for next time",
+            onChange: setKeep })),
+        span({ className: "fieldnote" }, keep
+          ? "It will be waiting as a chip next time you add a cart."
+          : "A one-off — it will not appear in your saved shops.")),
       div({ className: "sheetfield" },
         button({ className: "linkbtn", onClick: function () { props.onClose(); props.onShops(); } },
           "Manage saved shops")));
@@ -1158,9 +1164,15 @@
     function mapCart(id, fn) {
       putCarts(carts.carts.map(function (c) { return c.id === id ? fn(c) : c; }));
     }
-    function createCart(shop, colour) {
+    /* One write, not two: saving the shop and creating the cart both change
+       the same record, so a second setCarts would drop the first. */
+    function createCart(shop, colour, alsoSave) {
       var made = QD.makeCart(shop, colour);
-      putCarts(carts.carts.concat([made]));
+      setCarts({
+        carts: carts.carts.concat([made]),
+        shops: alsoSave ? QD.addShopIfNew(carts.shops, made.shop, made.colour) : carts.shops,
+        lastSweptOn: carts.lastSweptOn
+      });
       setOpenCartId(made.id);
     }
     function removeCart(id) {

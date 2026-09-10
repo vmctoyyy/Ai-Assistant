@@ -104,6 +104,11 @@ Report the merge in the summary; do not ask permission for it.
   opened each day (`openApp`), not when the app launches. The rollover
   deliberately leaves `lastBriefShownOn` on yesterday so the next visit shows
   it.
+- **Creating a cart and saving its shop is one write.** The "Save this shop
+  for next time" tick makes `createCart` touch both `carts` and `shops`; two
+  separate `setCarts` calls would each read the same stale record and the
+  second would drop the first. `addShopIfNew` matches on name so ticking twice
+  leaves one chip, and never recolours a shop that already exists.
 - **A cart's colour is a copy, not a link.** `makeCart` copies a saved
   shop's name and colour at creation. Editing or deleting the shop must never
   reach back into carts already made — there are assertions for both.
