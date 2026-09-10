@@ -6,7 +6,14 @@ screen. Static site in `docs/`, served by GitHub Pages from `main`.
 The app is a home screen plus four apps: **Tasks**, **Recap**, **Quotes**,
 **Shopping List**, and two non-tappable placeholders. Home is a fixed
 non-scrolling page — a 25% header (date + the day's quote) over a 75% grid of
-six icons. Only app screens scroll.
+six icons.
+
+An app opens as a **bubble**: a rounded card inset from the viewport edges,
+never full-bleed. `.bubble` is the scroll container, so `.screen-body` is the
+only thing that scrolls and the composer is an in-flow footer on the bubble's
+bottom edge rather than a fixed overlay. Sheets are bubbles too, rounded on
+all four corners. Nothing in the app should meet a viewport edge with a
+square corner.
 
 **Markets, Today's Schedule and Habits were removed** from the UI. Their
 storage keys (`markets`, `schedule`, `habits`) are read once at boot, carried
