@@ -788,6 +788,20 @@
     return out;
   }
 
+  /* Saving a shop while creating a one-off cart. Matching on name so ticking
+     the box twice for the same shop does not leave two chips behind; an
+     existing shop keeps its own colour, since changing it is a deliberate act
+     done on the Shops screen. */
+  function addShopIfNew(shops, name, colour) {
+    var clean = String(name || "").trim();
+    if (!clean) return shops;
+    var exists = shops.some(function (sh) {
+      return sh.name.toLowerCase() === clean.toLowerCase();
+    });
+    if (exists) return shops;
+    return shops.concat([{ id: uid(), name: clean, colour: normHex(colour) || CART_FALLBACK }]);
+  }
+
   function makeCart(shop, colour) {
     return { id: uid(), shop: String(shop).trim(),
              colour: normHex(colour) || CART_FALLBACK, items: [], createdAt: Date.now() };
@@ -902,7 +916,8 @@
     blankShopping: blankShopping, normShopping: normShopping,
     blankCarts: blankCarts, normCarts: normCarts, normHex: normHex,
     contrastInk: contrastInk, luminance: luminance, CART_FALLBACK: CART_FALLBACK,
-    makeCart: makeCart, normShop: normShop, cartsNewestFirst: cartsNewestFirst,
+    makeCart: makeCart, normShop: normShop, addShopIfNew: addShopIfNew,
+    cartsNewestFirst: cartsNewestFirst,
     shopsByName: shopsByName, cartPreview: cartPreview, cartOpenCount: cartOpenCount,
     sweepCarts: sweepCarts,
     bucketForDate: bucketForDate,

@@ -328,10 +328,39 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
     (await pg.locator('.shop-chip').allInnerTexts()).join() === 'Warehouse');
   check('chip ink is readable on a dark colour',
     await pg.locator('.shop-chip').first().evaluate(el => getComputedStyle(el).color) === 'rgb(255, 252, 247)');
+  check('the one-off shop offers a save tick, off by default',
+    await pg.locator('.sheet .togglebtn').getAttribute('aria-checked') === 'false');
+  check('and says it will not be saved',
+    /will not appear in your saved shops/.test(await pg.locator('.sheet .fieldnote').last().innerText()));
   await pg.locator('.shop-chip').first().tap();
   await pg.waitForTimeout(450);
   check('picking a shop creates and opens the cart',
     (await pg.locator('.cart-banner-name').innerText()) === 'Warehouse');
+
+  /* a one-off cart WITH the tick on should leave a shop behind */
+  await pg.locator('.cart-banner .backbtn').tap();
+  await pg.waitForTimeout(300);
+  await pg.getByRole('button', { name: 'Add cart' }).tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  await pg.locator('.sheet input[aria-label="Shop name"]').fill('Bunnings');
+  await setColour('.sheet .colour-input', '#0d5257');
+  await pg.locator('.sheet .togglebtn').tap();
+  await pg.waitForTimeout(200);
+  check('ticking save changes what the sheet promises',
+    /waiting as a chip/.test(await pg.locator('.sheet .fieldnote').last().innerText()));
+  await pg.getByRole('button', { name: 'Create cart' }).tap();
+  await pg.waitForTimeout(450);
+  const saved = await cartState();
+  check('the ticked one-off shop is saved',
+    saved.shops.some(s => s.name === 'Bunnings' && s.colour === '#0d5257'),
+    JSON.stringify(saved.shops.map(s => s.name)));
+  check('and its cart was still created', saved.carts.some(c => c.shop === 'Bunnings'));
+  check('saving the shop did not drop the other cart', saved.carts.length === 2,
+    String(saved.carts.length));
+  await pg.locator('.cart-banner .backbtn').tap();
+  await pg.waitForTimeout(300);
+  await pg.locator('.cart-open', { hasText: 'Warehouse' }).tap();
+  await pg.waitForTimeout(400);
 
   for (const it of ['Extension cord', 'Batteries']) {
     await pg.locator('input[aria-label="Add an item"]').fill(it);
@@ -362,37 +391,48 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   await pg.waitForTimeout(350);
   await pg.getByRole('button', { name: 'Shops' }).first().tap();
   await pg.waitForTimeout(300);
-  await pg.getByRole('button', { name: 'Edit' }).first().tap();
+  /* Name the row rather than taking the first — there is more than one now. */
+  const warehouseRow = pg.locator('.shop-row', { hasText: 'Warehouse' });
+  await warehouseRow.getByRole('button', { name: 'Edit' }).tap();
   await pg.waitForTimeout(250);
   await setColour('.shop-edit .colour-input', '#00aa00');
   await pg.waitForTimeout(400);
   const afterEdit = await cartState();
+  const whCart = afterEdit.carts.find(c => c.shop === 'Warehouse');
+  const whShop = afterEdit.shops.find(sh => sh.name === 'Warehouse');
   check('recolouring a shop leaves existing carts alone',
-    afterEdit.carts[0].colour === '#e4002b' && afterEdit.shops[0].colour === '#00aa00',
-    `cart ${afterEdit.carts[0].colour} / shop ${afterEdit.shops[0].colour}`);
+    whCart.colour === '#e4002b' && whShop.colour === '#00aa00',
+    `cart ${whCart.colour} / shop ${whShop.colour}`);
   await pg.getByRole('button', { name: 'Done' }).tap();
   await pg.waitForTimeout(250);
-  await pg.getByRole('button', { name: 'Delete' }).first().tap();
+  await warehouseRow.getByRole('button', { name: 'Delete' }).tap();
   await pg.waitForTimeout(200);
-  await pg.getByRole('button', { name: 'Tap again' }).tap();
+  await warehouseRow.getByRole('button', { name: 'Tap again' }).tap();
   await pg.waitForTimeout(400);
   const afterDelete = await cartState();
   check('deleting a shop does not touch its carts',
-    afterDelete.shops.length === 0 && afterDelete.carts.length === 1 &&
-    afterDelete.carts[0].items.length === 2);
+    !afterDelete.shops.some(sh => sh.name === 'Warehouse') &&
+    afterDelete.carts.some(c => c.shop === 'Warehouse' && c.items.length === 2),
+    JSON.stringify({ shops: afterDelete.shops.map(x => x.name),
+                     carts: afterDelete.carts.map(c => c.shop + ':' + c.items.length) }));
 
   await pg.locator('.backbtn').tap();
   await pg.waitForTimeout(300);
+  const warehouseBubble = pg.locator('.cart-bubble', { hasText: 'Warehouse' });
   check('the closed bubble previews what is left to get',
-    (await pg.locator('.cart-line').allInnerTexts()).join() === 'Batteries',
-    (await pg.locator('.cart-line').allInnerTexts()).join());
-  await pg.locator('.cart-menu').first().tap();
+    (await warehouseBubble.locator('.cart-line').allInnerTexts()).join() === 'Batteries',
+    (await warehouseBubble.locator('.cart-line').allInnerTexts()).join());
+  await warehouseBubble.locator('.cart-menu').tap();
   await pg.waitForSelector('.sheet', { timeout: 5000 });
   check('removing a cart asks first',
     (await pg.locator('.sheet h2').innerText()) === 'Remove this cart?');
   await pg.getByRole('button', { name: 'Remove it' }).tap();
   await pg.waitForTimeout(400);
-  check('confirming removes the cart', (await cartState()).carts.length === 0);
+  const afterRemove = await cartState();
+  check('confirming removes that cart and only that one',
+    !afterRemove.carts.some(c => c.shop === 'Warehouse') &&
+    afterRemove.carts.some(c => c.shop === 'Bunnings'),
+    JSON.stringify(afterRemove.carts.map(c => c.shop)));
 
   await pg.locator('.backbtn').tap();
   await pg.waitForSelector('.home', { timeout: 5000 });

@@ -761,6 +761,25 @@ t("a cart made from a saved shop copies the colour, it does not link to it", fun
   assert.strictEqual(c.shop, "Warehouse");
   assert.deepStrictEqual(c.items, []);
 });
+t("ticking save adds the shop, once", function () {
+  var shops = QD.addShopIfNew([], "Bunnings", "#0d5257");
+  assert.strictEqual(shops.length, 1);
+  assert.strictEqual(shops[0].name, "Bunnings");
+  assert.strictEqual(shops[0].colour, "#0d5257");
+  var again = QD.addShopIfNew(shops, "bunnings", "#ff0000");
+  assert.strictEqual(again.length, 1, "same name does not add a second chip");
+  assert.strictEqual(again[0].colour, "#0d5257", "and does not silently recolour the saved one");
+});
+t("not ticking save leaves the shop list alone", function () {
+  var shops = [QD.normShop({ name: "Warehouse", colour: "#e4002b" })];
+  assert.strictEqual(QD.addShopIfNew(shops, "", "#123456"), shops, "a blank name is a no-op");
+  assert.strictEqual(QD.addShopIfNew(shops, "   ", "#123456"), shops);
+});
+t("a saved-on-the-fly shop is trimmed and colour-checked", function () {
+  var shops = QD.addShopIfNew([], "  Night Owl  ", "zzz");
+  assert.strictEqual(shops[0].name, "Night Owl");
+  assert.strictEqual(shops[0].colour, QD.CART_FALLBACK);
+});
 t("carts list newest first", function () {
   var st = { carts: [cart({ id: "old", createdAt: 1 }), cart({ id: "new", createdAt: 9 })],
              shops: [], lastSweptOn: null };
