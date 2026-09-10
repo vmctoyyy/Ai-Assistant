@@ -3,6 +3,17 @@
 A personal daily dashboard for one user, installed as a PWA on an iPhone home
 screen. Static site in `docs/`, served by GitHub Pages from `main`.
 
+The app is a home screen plus four apps: **Tasks**, **Recap**, **Quotes**,
+**Shopping List**, and two non-tappable placeholders. Home is a fixed
+non-scrolling page — a 25% header (date + the day's quote) over a 75% grid of
+six icons. Only app screens scroll.
+
+**Markets, Today's Schedule and Habits were removed** from the UI. Their
+storage keys (`markets`, `schedule`, `habits`) are read once at boot, carried
+untouched in `retired`, and included in backups — never written, never reset.
+Habit history in particular is meant to survive for a possible return, so do
+not add them to `resetAll`.
+
 ## Deploy workflow — do this without asking
 
 The user has given standing permission to merge to `main`. Every change ends:
@@ -39,7 +50,8 @@ Report the merge in the summary; do not ask permission for it.
   suggestions, brief copy, ICS export. No DOM, no storage. Exported as
   `window.QD` in the browser and `module.exports` under node.
 - `docs/app.js` — React UI only. All rules belong in `logic.js` so they can
-  be tested.
+  be tested. `APP_TILES` near the top holds each home icon's entire visual;
+  swapping a placeholder for real artwork means editing only that array.
 - `test/logic.test.js` — `node test/logic.test.js`. Add assertions here for
   any rule change; it is the only automated safety net.
 
@@ -73,6 +85,18 @@ Report the merge in the summary; do not ask permission for it.
 - **Batch creation staggers `createdAt`.** Tasks made in one go otherwise
   share a millisecond, and the ranking tie-break falls through to the random
   id, losing the order they were typed in.
+- **The day's quote is deterministic from the date.** `quoteForDay` indexes
+  by days since a fixed epoch, so it holds all day and turns at midnight. An
+  empty saved list falls back to the 30 built-ins; one saved quote replaces
+  them entirely.
+- **Recap needs the archive.** Completed tasks are cleared at midnight, so
+  `archiveCompleted` files them into the `recap` key first — at boot when a
+  day has turned, and in the rollover effect. Remove that and Recap silently
+  empties.
+- **The morning brief belongs to Tasks.** It opens the first time Tasks is
+  opened each day (`openApp`), not when the app launches. The rollover
+  deliberately leaves `lastBriefShownOn` on yesterday so the next visit shows
+  it.
 - **Reminders are calendar events, not push.** iOS Web Push needs a server
   signing with VAPID keys; this app has no server, and Notification Triggers
   is not in Safari. `buildICS` writes a `VALARM` at `-PT30M`.
@@ -100,6 +124,12 @@ build to the user's phone:
   tap landed.
 - **Tap chips BEFORE typing.** Tests that typed first kept the chip row open
   and hid the bug entirely. The empty-input path is the one people use.
+
+When deleting a feature's CSS, check what else lived in that block. Removing
+the schedule and markets sections took `.field`, `.btn`, `.disc`, `.meta` and
+`.chev` with them — shared controls that happened to sit there — and every
+input in the app fell back to a browser default border. The tests all passed;
+a screenshot caught it.
 
 Watch for guards that disable a gesture wholesale: `if (e.target.closest("button"))`
 in the swipe handler made swipe-to-delete unreachable for months, because the

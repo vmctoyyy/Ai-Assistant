@@ -31,6 +31,7 @@
   var I_X = "M6 6l12 12M18 6L6 18";
   var I_PLUS = "M12 5v14M5 12h14";
   var I_CHEV = "M6 9l6 6 6-6";
+  var I_BACK = "M15 19l-7-7 7-7";
   var I_DOTS = "M6 12h.01M12 12h.01M18 12h.01";
 
   /* ---------- dates ---------- */
@@ -39,47 +40,36 @@
   var MO3 = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   function nzDate(d) { return WD3[d.getDay()] + " " + d.getDate() + " " + MO3[d.getMonth()]; }
   function nowMinutes() { var d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
-  function timeToMinutes(t) {
-    if (!t) return 0;
-    var b = String(t).split(":");
-    return (+b[0] || 0) * 60 + (+b[1] || 0);
-  }
-  function staleness(iso) {
-    if (!iso) return "not entered yet";
-    var then = new Date(iso).getTime();
-    if (isNaN(then)) return "not entered yet";
-    var mins = Math.round((Date.now() - then) / 60000);
-    if (mins < 1) return "updated just now";
-    if (mins < 60) return "updated " + mins + " min ago";
-    var hrs = Math.round(mins / 60);
-    if (hrs < 24) return "updated " + hrs + (hrs === 1 ? " hour ago" : " hours ago");
-    var days = Math.round(hrs / 24);
-    return "updated " + days + (days === 1 ? " day ago" : " days ago");
-  }
   var todayKey = QD.todayKey, uid = QD.uid;
 
   /* ---------- fixed content ---------- */
-  var HABITS = [
-    { id: "move",  name: "Movement",           sub: "Exercise, a walk, anything physical" },
-    { id: "fuel",  name: "Water & food",       sub: "Ate properly, drank enough" },
-    { id: "sleep", name: "Sleep & wind-down",  sub: "Screens down, bed on time" },
-    { id: "focus", name: "Focused work block", sub: "One uninterrupted stretch" }
-  ];
-  var MARKETS = [
-    { id: "djia",   name: "Dow Jones", sym: "DJIA" },
-    { id: "nasdaq", name: "Nasdaq",    sym: "IXIC" },
-    { id: "nzx50",  name: "NZX 50",    sym: "NZ50" },
-    { id: "asx200", name: "ASX 200",   sym: "XJO" },
-    { id: "btc",    name: "Bitcoin",   sym: "BTC" },
-    { id: "xrp",    name: "XRP",       sym: "XRP" },
-    { id: "eth",    name: "Ethereum",  sym: "ETH" },
-    { id: "gold",   name: "Gold",      sym: "XAU" },
-    { id: "silver", name: "Silver",    sym: "XAG" }
+  /* ---------- the six apps ----------
+     Each tile's entire visual lives in this one array. To swap a placeholder
+     for real artwork, give the entry an `img` and nothing else changes. */
+  function strokes() {
+    var d = Array.prototype.slice.call(arguments);
+    return d.map(function (path, i) { return h("path", { key: i, d: path }); });
+  }
+  var APP_TILES = [
+    { id: "tasks", name: "Tasks", tone: 1,
+      draw: function () { return strokes("M5 12.5l4.2 4.2L19 7"); } },
+    { id: "recap", name: "Recap", tone: 2,
+      draw: function () {
+        return [h("circle", { key: "c", cx: 12, cy: 12, r: 8 }),
+                h("path", { key: "h", d: "M12 7.5V12l3 1.8" })];
+      } },
+    { id: "quotes", name: "Quotes", tone: 3,
+      draw: function () { return strokes("M7 8.5h4v4a3.2 3.2 0 0 1-3.2 3.2",
+                                         "M15 8.5h4v4a3.2 3.2 0 0 1-3.2 3.2"); } },
+    { id: "shopping", name: "Shopping List", tone: 4,
+      draw: function () { return strokes("M5 8.5h14l-1.3 9.2a2 2 0 0 1-2 1.7H8.3a2 2 0 0 1-2-1.7z",
+                                         "M9.2 8.5V6.8a2.8 2.8 0 0 1 5.6 0v1.7"); } },
+    { id: "placeholder-1", name: "", tone: 5, placeholder: true,
+      draw: function () { return strokes("M8.5 8.5l7 7", "M15.5 8.5l-7 7"); } },
+    { id: "placeholder-2", name: "", tone: 5, placeholder: true,
+      draw: function () { return strokes("M8.5 8.5l7 7", "M15.5 8.5l-7 7"); } }
   ];
 
-  function blankSchedule(day) { return { day: day, events: [] }; }
-  function blankHabits() { return { days: {} }; }
-  function blankMarkets() { return { items: {}, updatedAt: null }; }
   function blankPrefs() {
     return { installHintDismissed: false, lastBriefShownOn: null, lastStaleAskOn: null };
   }
@@ -160,33 +150,6 @@
     if (document.visibilityState === "hidden") flushAll();
   });
 
-  /* ---------- normalisers for the sections logic.js does not own ---------- */
-  function normSched(v, day) {
-    if (!v || typeof v !== "object") return blankSchedule(day);
-    var events = (Array.isArray(v.events) ? v.events : []).filter(function (e) {
-      return e && typeof e === "object" && e.title;
-    }).map(function (e) {
-      return { id: e.id || uid(), time: String(e.time || "00:00"), title: String(e.title) };
-    });
-    events.sort(function (a, b) { return timeToMinutes(a.time) - timeToMinutes(b.time); });
-    return { day: typeof v.day === "string" ? v.day : day, events: events };
-  }
-  function normHabits(v) {
-    if (!v || typeof v !== "object" || !v.days || typeof v.days !== "object") return blankHabits();
-    return { days: v.days };
-  }
-  function normMarkets(v) {
-    if (!v || typeof v !== "object") return blankMarkets();
-    var items = {}, src = v.items && typeof v.items === "object" ? v.items : {};
-    MARKETS.forEach(function (m) {
-      var row = src[m.id];
-      items[m.id] = {
-        price: row && row.price != null ? String(row.price) : "",
-        change: row && row.change != null ? String(row.change) : ""
-      };
-    });
-    return { items: items, updatedAt: typeof v.updatedAt === "string" ? v.updatedAt : null };
-  }
   function normPrefs(v) {
     if (!v || typeof v !== "object") return blankPrefs();
     return {
@@ -194,17 +157,6 @@
       lastBriefShownOn: typeof v.lastBriefShownOn === "string" ? v.lastBriefShownOn : null,
       lastStaleAskOn: typeof v.lastStaleAskOn === "string" ? v.lastStaleAskOn : null
     };
-  }
-  function rollSchedule(s, today) {
-    if (!s || s.day === today) return s;
-    return { day: today, events: [] };
-  }
-  function pruneHabits(hb, today) {
-    var keep = {};
-    for (var i = 0; i < 30; i++) keep[QD.shiftKey(today, -i)] = true;
-    var out = {};
-    Object.keys(hb.days || {}).forEach(function (k) { if (keep[k]) out[k] = hb.days[k]; });
-    return { days: out };
   }
 
   /* ---------- shared bits ---------- */
@@ -655,62 +607,152 @@
       note ? p(null, note) : null);
   }
 
-  /* ---------- markets ---------- */
-  function Markets(props) {
-    var st = useState(false), open = st[0], setOpen = st[1];
-    var st2 = useState(function () { return props.data.items || {}; }), draft = st2[0], setDraft = st2[1];
-    var st3 = useState(false), dirty = st3[0], setDirty = st3[1];
-    var seen = useRef(props.data);
-
-    useEffect(function () {
-      if (props.data !== seen.current) {
-        seen.current = props.data;
-        setDraft(props.data.items || {});
-        setDirty(false);
-      }
-    }, [props.data]);
-
-    function edit(id, field, value) {
-      var next = {};
-      Object.keys(draft).forEach(function (k) { next[k] = { price: draft[k].price, change: draft[k].change }; });
-      if (!next[id]) next[id] = { price: "", change: "" };
-      next[id][field] = value;
-      setDraft(next); setDirty(true);
-    }
-    var body = !open ? null : div({ className: "sec", style: { gap: 0, paddingTop: ".25rem" } },
-      MARKETS.map(function (m) {
-        var v = draft[m.id] || { price: "", change: "" };
-        var num = parseFloat(String(v.change).replace(/[^0-9.\-+]/g, ""));
-        var dir = isNaN(num) || num === 0 ? "" : (num > 0 ? " up" : " down");
-        return div({ className: "mkt", key: m.id },
-          div({ className: "nm" }, m.name, h("em", null, m.sym)),
-          input({ inputMode: "decimal", value: v.price, placeholder: "—",
-            "aria-label": m.name + " price",
-            onChange: function (e) { edit(m.id, "price", e.target.value); } }),
-          div({ className: "chg" + dir },
-            input({ inputMode: "decimal", value: v.change, placeholder: "—",
-              "aria-label": m.name + " percent change",
-              onChange: function (e) { edit(m.id, "change", e.target.value); } })));
-      }),
-      div({ className: "mktfoot" },
-        span({ className: "meta" }, dirty ? "Not saved yet" : staleness(props.data.updatedAt)),
-        button({ className: "btn" + (dirty ? " primary" : ""), disabled: !dirty,
-          onClick: function () { props.onSave(draft); setDirty(false); } }, "Save prices")));
-
-    return section({ className: "sec" },
-      h(Eyebrow, { title: "Markets" }),
-      button({ className: "disc", onClick: function () { setOpen(!open); },
-        "aria-expanded": open ? "true" : "false" },
-        span({ className: "lbl" }, "Your positions"),
-        span({ style: { display: "flex", alignItems: "center", gap: ".625rem" } },
-          span({ className: "meta" }, dirty ? "Not saved yet" : staleness(props.data.updatedAt)),
-          span({ className: "chev" + (open ? " open" : "") }, icon(I_CHEV, 18)))),
-      body);
+  /* ---------- home ---------- */
+  function Home(props) {
+    var d = QD.keyToDate(props.today);
+    return div({ className: "home" },
+      div({ className: "home-head" },
+        div({ className: "hh-date" }, nzDate(d)),
+        props.quote ? div({ className: "hh-quote" }, props.quote.text) : null),
+      div({ className: "home-grid" }, APP_TILES.map(function (tile) {
+        var art = h("svg", {
+          className: "tile-art", viewBox: "0 0 24 24", fill: "none",
+          stroke: "currentColor", strokeWidth: 1.4,
+          strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true"
+        }, tile.draw());
+        if (tile.placeholder) {
+          return div({ className: "tile tone" + tile.tone + " placeholder", key: tile.id,
+            "aria-hidden": "true" }, art);
+        }
+        return button({
+          className: "tile tone" + tile.tone, key: tile.id,
+          onClick: function () { props.onOpen(tile.id); },
+          "aria-label": tile.name
+        }, art);
+      })),
+      props.warn ? div({ className: "home-warn", role: "status" }, props.warn) : null);
   }
 
-  function weekLabel(habits, week, hab) {
-    var n = week.filter(function (k) { return !!((habits.days[k] || {})[hab.id]); }).length;
-    return hab.name + ": " + n + " of the last 7 days";
+  /* ---------- app screen shell ---------- */
+  function Screen(props) {
+    return div({ className: "screen" },
+      div({ className: "screen-top" },
+        button({ className: "backbtn", onClick: props.onBack, "aria-label": "Back to home" },
+          icon(I_BACK, 18), span(null, "Back")),
+        props.title ? span({ className: "screen-title" }, props.title) : null),
+      div({ className: "screen-body" }, props.children));
+  }
+
+  /* ---------- quotes ---------- */
+  function QuotesApp(props) {
+    var s1 = useState(""), text = s1[0], setText = s1[1];
+    var s2 = useState(""), source = s2[0], setSource = s2[1];
+    var list = props.list, usingDefaults = !!(list[0] && list[0].builtIn);
+
+    function add(e) {
+      e.preventDefault();
+      var t = text.trim();
+      if (!t) return;
+      props.onAdd(t, source.trim());
+      setText(""); setSource("");
+    }
+    return h(Screen, { title: "Quotes", onBack: props.onBack },
+      props.quote ? div({ className: "quote-today" },
+        div({ className: "qt-text" }, props.quote.text),
+        props.quote.source ? div({ className: "qt-source" }, props.quote.source) : null,
+        div({ className: "qt-label" }, "Today")) : null,
+
+      h("form", { className: "quote-add", onSubmit: add },
+        input({ className: "field", value: text, placeholder: "Add a quote",
+          "aria-label": "Quote", enterKeyHint: "done",
+          onChange: function (e) { setText(e.target.value); } }),
+        div({ className: "quote-add-row" },
+          input({ className: "field", value: source, placeholder: "Who said it (optional)",
+            "aria-label": "Source", enterKeyHint: "done",
+            onChange: function (e) { setSource(e.target.value); } }),
+          button({ className: "btn primary", type: "submit", disabled: !text.trim(),
+            onMouseDown: function (e) { e.preventDefault(); } }, "Add"))),
+
+      usingDefaults ? div({ className: "quote-note" },
+        p(null, "These are the built-in quotes. Add one of your own and the list becomes yours, or start from these."),
+        button({ className: "btn", onClick: props.onAdoptDefaults }, "Start from these")) : null,
+
+      div({ className: "quote-list" }, list.map(function (q) {
+        return div({ className: "quote-row", key: q.id },
+          div({ className: "qr-body" },
+            div({ className: "qr-text" }, q.text),
+            q.source ? div({ className: "qr-source" }, q.source) : null),
+          usingDefaults ? null : button({
+            className: "iconbtn", onClick: function () { props.onDelete(q.id); },
+            "aria-label": "Delete quote: " + q.text.slice(0, 40)
+          }, icon(I_X, 17)));
+      })));
+  }
+
+  /* ---------- recap ---------- */
+  function RecapApp(props) {
+    var days = props.days;
+    var total = days.reduce(function (n, d) { return n + d.items.length; }, 0);
+    return h(Screen, { title: "Recap", onBack: props.onBack },
+      p({ className: "recap-lead" }, total === 0
+        ? "Nothing finished in the last seven days."
+        : total + (total === 1 ? " thing" : " things") + " finished in the last seven days."),
+      days.map(function (d) {
+        var dd = QD.keyToDate(d.date);
+        var label = d.date === props.today ? "Today"
+          : d.date === QD.shiftKey(props.today, -1) ? "Yesterday"
+          : WD[dd.getDay()] + " " + dd.getDate() + " " + MO3[dd.getMonth()];
+        return section({ className: "sec", key: d.date },
+          h(Eyebrow, { title: label, hint: String(d.items.length) }),
+          div({ className: "recap-day" }, d.items.map(function (it, i) {
+            return div({ className: "recap-row", key: i },
+              span({ className: "recap-tick" }, icon(I_CHECK, 14)),
+              span({ className: "recap-title" }, it.title));
+          })));
+      }));
+  }
+
+  /* ---------- shopping ---------- */
+  function ShoppingApp(props) {
+    var s1 = useState(""), name = s1[0], setName = s1[1];
+    var items = props.items;
+    var open = items.filter(function (i) { return !i.got; });
+    var got = items.filter(function (i) { return i.got; });
+    function add(e) {
+      e.preventDefault();
+      var n = name.trim();
+      if (!n) return;
+      props.onAdd(n);
+      setName("");
+      var el = e.currentTarget.querySelector("input");
+      if (el) el.focus();
+    }
+    function row(i) {
+      return div({ className: "row" + (i.got ? " done" : ""), key: i.id },
+        button({ className: "tickbtn", onClick: function () { props.onToggle(i.id); },
+          "aria-pressed": i.got ? "true" : "false",
+          "aria-label": (i.got ? "Put back on the list: " : "Got: ") + i.name },
+          h(Check, { on: i.got })),
+        span({ className: "rowbody shop-name" }, span({ className: "txt" }, i.name)),
+        button({ className: "iconbtn", onClick: function () { props.onDelete(i.id); },
+          "aria-label": "Delete: " + i.name }, icon(I_X, 17)));
+    }
+    return h(Screen, { title: "Shopping list", onBack: props.onBack },
+      h("form", { className: "shop-add", onSubmit: add },
+        input({ className: "field", value: name, placeholder: "Add an item",
+          "aria-label": "Add an item", enterKeyHint: "done",
+          onChange: function (e) { setName(e.target.value); } }),
+        button({ className: "btn primary", type: "submit", disabled: !name.trim(),
+          onMouseDown: function (e) { e.preventDefault(); } }, "Add")),
+      open.length === 0 && got.length === 0
+        ? p({ className: "empty-note" }, "Nothing on the list.")
+        : null,
+      open.length ? div({ className: "tasks" }, open.map(row)) : null,
+      got.length ? section({ className: "sec", style: { paddingTop: "1.25rem" } },
+        h(Eyebrow, { title: "In the basket", hint: String(got.length) }),
+        div({ className: "tasks" }, got.map(row)),
+        div({ className: "footrow", style: { paddingTop: ".75rem" } },
+          button({ className: "linkbtn", onClick: props.onClearGot }, "Clear these"))) : null);
   }
 
   /* ---------- bucket section ---------- */
@@ -747,9 +789,13 @@
     var s2 = useState(todayKey()), today = s2[0], setToday = s2[1];
     var s3 = useState(function () { return { version: 2, items: [], doneYesterday: 0, lastRollOn: todayKey() }; });
     var tasks = s3[0], setTasksRaw = s3[1];
-    var s4 = useState(function () { return blankSchedule(todayKey()); }), sched = s4[0], setSchedRaw = s4[1];
-    var s5 = useState(blankHabits), habits = s5[0], setHabitsRaw = s5[1];
-    var s6 = useState(blankMarkets), markets = s6[0], setMarketsRaw = s6[1];
+    var s4 = useState(QD.blankRecap), recap = s4[0], setRecapRaw = s4[1];
+    var s5 = useState(function () { return { list: [] }; }), quotes = s5[0], setQuotesRaw = s5[1];
+    var s6 = useState(QD.blankShopping), shopping = s6[0], setShoppingRaw = s6[1];
+    /* Markets, Schedule and Habits are gone from the UI. Their keys are read
+       once and carried untouched so a backup still round-trips them and the
+       data is here if any comes back. */
+    var sR = useState({}), retired = sR[0], setRetired = sR[1];
     var s7 = useState(blankPrefs), prefs = s7[0], setPrefsRaw = s7[1];
     var s8 = useState(""), quick = s8[0], setQuick = s8[1];
     var quickRef = useRef("");
@@ -759,18 +805,17 @@
     var s11 = useState("should"), addImp = s11[0], setAddImp = s11[1];
     var s12 = useState(false), dumping = s12[0], setDumping = s12[1];
     var s13 = useState(false), backing = s13[0], setBacking = s13[1];
-    var s14 = useState(""), evTime = s14[0], setEvTime = s14[1];
-    var s15 = useState(""), evTitle = s15[0], setEvTitle = s15[1];
     var s16 = useState(false), armed = s16[0], setArmed = s16[1];
     var s17 = useState(nowMinutes()), clock = s17[0], setClock = s17[1];
     var s18 = useState(false), briefOpen = s18[0], setBriefOpen = s18[1];
     var s19 = useState(null), editingId = s19[0], setEditingId = s19[1];
+    var s20 = useState("home"), route = s20[0], setRoute = s20[1];
 
-    var setTasks   = useCallback(function (v) { setTasksRaw(v);   save("tasks", v); }, []);
-    var setSched   = useCallback(function (v) { setSchedRaw(v);   save("schedule", v); }, []);
-    var setHabits  = useCallback(function (v) { setHabitsRaw(v);  save("habits", v); }, []);
-    var setMarkets = useCallback(function (v) { setMarketsRaw(v); save("markets", v); }, []);
-    var setPrefs   = useCallback(function (v) { setPrefsRaw(v);   save("prefs", v); }, []);
+    var setTasks    = useCallback(function (v) { setTasksRaw(v);    save("tasks", v); }, []);
+    var setRecap    = useCallback(function (v) { setRecapRaw(v);    save("recap", v); }, []);
+    var setQuotes   = useCallback(function (v) { setQuotesRaw(v);   save("quotes", v); }, []);
+    var setShopping = useCallback(function (v) { setShoppingRaw(v); save("shopping", v); }, []);
+    var setPrefs    = useCallback(function (v) { setPrefsRaw(v);    save("prefs", v); }, []);
 
     /* boot */
     useEffect(function () {
@@ -792,31 +837,32 @@
         .then(function () {
           var day = todayKey();
           return Promise.all([
-            readKey("tasks", null), readKey("schedule", null),
-            readKey("habits", null), readKey("markets", null), readKey("prefs", null)
+            readKey("tasks", null), readKey("prefs", null),
+            readKey("recap", null), readKey("quotes", null), readKey("shopping", null),
+            readKey("habits", null), readKey("markets", null), readKey("schedule", null)
           ]).then(function (res) {
             if (cancelled) return;
-            var t  = QD.rollDay(QD.migrate(res[0], day), day);
-            var sc = rollSchedule(normSched(res[1], day), day);
-            var hb = pruneHabits(normHabits(res[2]), day);
-            var pf = normPrefs(res[4]);
-            var firstOpenToday = pf.lastBriefShownOn !== day;
+            var t = QD.migrate(res[0], day);
+            var rc = QD.normRecap(res[2]);
+            /* A day has turned since last open: file the finished work away
+               before rollDay clears it, so Recap keeps the history. */
+            if (t.lastRollOn !== day) {
+              rc = QD.pruneRecap(QD.archiveCompleted(rc, t.items, t.lastRollOn), day);
+            }
+            t = QD.rollDay(t, day);
+            var pf = normPrefs(res[1]);
 
             setToday(day);
-            setTasksRaw(t); setSchedRaw(sc); setHabitsRaw(hb);
-            setMarketsRaw(normMarkets(res[3]));
+            setTasksRaw(t);
+            setRecapRaw(rc);
+            setQuotesRaw(QD.normQuotes(res[3]));
+            setShoppingRaw(QD.normShopping(res[4]));
+            setRetired({ habits: res[5], markets: res[6], schedule: res[7] });
+            setPrefsRaw(pf);
             store.ready = store.mode !== "none";
             setLoading(false);
-
             save("tasks", t);
-            if (!res[1] || res[1].day !== day) save("schedule", sc);
-            if (firstOpenToday) {
-              setBriefOpen(true);
-              pf = { installHintDismissed: pf.installHintDismissed,
-                     lastBriefShownOn: day, lastStaleAskOn: pf.lastStaleAskOn };
-            }
-            setPrefsRaw(pf);
-            if (firstOpenToday) save("prefs", pf);
+            save("recap", rc);
           });
         })
         .catch(function () {
@@ -861,21 +907,17 @@
       };
     }, []);
 
-    /* local midnight rollover — new day means a new brief */
+    /* local midnight rollover — the day's finished work is archived first */
     useEffect(function () {
       if (loading) return;
       var now = todayKey();
       if (now === today) return;
       setToday(now);
+      setRecap(QD.pruneRecap(QD.archiveCompleted(recap, tasks.items, today), now));
       setTasks(QD.rollDay(tasks, now));
-      setSched(rollSchedule(sched, now));
-      setHabits(pruneHabits(habits, now));
-      if (prefs.lastBriefShownOn !== now) {
-        setBriefOpen(true);
-        setPrefs({ installHintDismissed: prefs.installHintDismissed,
-                   lastBriefShownOn: now, lastStaleAskOn: prefs.lastStaleAskOn });
-      }
-    }, [clock, today, loading, tasks, sched, habits, prefs, setTasks, setSched, setHabits, setPrefs]);
+      /* lastBriefShownOn is deliberately left on yesterday, so the first
+         visit to Tasks after midnight still opens the brief. */
+    }, [clock, today, loading, tasks, recap, setTasks, setRecap]);
 
     /* ---- task actions ---- */
     function commit(items) {
@@ -939,28 +981,36 @@
       }));
     }
 
-    /* ---- other sections ---- */
-    function addEvent(e) {
-      e.preventDefault();
-      var title = evTitle.trim();
-      if (!evTime || !title) return;
-      var events = sched.events.concat([{ id: uid(), time: evTime, title: title }]);
-      events.sort(function (a, b) { return timeToMinutes(a.time) - timeToMinutes(b.time); });
-      setSched({ day: today, events: events });
-      setEvTime(""); setEvTitle("");
+    /* ---- quotes ---- */
+    function addQuote(text, source) {
+      setQuotes({ list: quotes.list.concat([{ id: QD.uid(), text: text, source: source || "" }]) });
     }
-    function deleteEvent(id) {
-      setSched({ day: today, events: sched.events.filter(function (ev) { return ev.id !== id; }) });
+    function deleteQuote(id) {
+      setQuotes({ list: quotes.list.filter(function (q) { return q.id !== id; }) });
     }
-    function toggleHabit(id) {
-      var days = {};
-      Object.keys(habits.days).forEach(function (k) { days[k] = habits.days[k]; });
-      var cur = {};
-      Object.keys(days[today] || {}).forEach(function (k) { cur[k] = days[today][k]; });
-      cur[id] = !cur[id];
-      days[today] = cur;
-      setHabits({ days: days });
+    function adoptDefaults() {
+      setQuotes({ list: QD.DEFAULT_QUOTES.map(function (q) {
+        return { id: QD.uid(), text: q.text, source: q.source };
+      }) });
     }
+
+    /* ---- shopping ---- */
+    function addShopping(name) {
+      setShopping({ items: shopping.items.concat([
+        { id: QD.uid(), name: name, got: false, at: Date.now() }]) });
+    }
+    function toggleShopping(id) {
+      setShopping({ items: shopping.items.map(function (i) {
+        return i.id === id ? { id: i.id, name: i.name, got: !i.got, at: i.at } : i;
+      }) });
+    }
+    function deleteShopping(id) {
+      setShopping({ items: shopping.items.filter(function (i) { return i.id !== id; }) });
+    }
+    function clearGot() {
+      setShopping({ items: shopping.items.filter(function (i) { return !i.got; }) });
+    }
+
     /* No push server exists for a static site, so a reminder is a real
        calendar event with a 30-minute alarm — which fires with the app shut. */
     function remind(task, when) {
@@ -988,41 +1038,45 @@
       }
     }
 
+    /* Clears the apps that are live. Retired keys are deliberately left
+       alone — habit history in particular is meant to survive. */
     function resetAll() {
       var day = todayKey();
       setTasks({ version: 2, items: [], doneYesterday: 0, lastRollOn: day });
-      setSched(blankSchedule(day)); setHabits(blankHabits()); setMarkets(blankMarkets());
+      setRecap(QD.blankRecap());
+      setShopping(QD.blankShopping());
+      setQuotes({ list: [] });
       setArmed(false); setWarn(null);
     }
     function restore(data) {
       var day = todayKey();
       setTasks(QD.rollDay(QD.migrate(data.tasks, day), day));
-      setSched(rollSchedule(normSched(data.schedule, day), day));
-      setHabits(pruneHabits(normHabits(data.habits), day));
-      setMarkets(normMarkets(data.markets));
+      setRecap(QD.pruneRecap(QD.normRecap(data.recap), day));
+      setQuotes(QD.normQuotes(data.quotes));
+      setShopping(QD.normShopping(data.shopping));
+      if (data.habits || data.markets || data.schedule) {
+        setRetired({ habits: data.habits, markets: data.markets, schedule: data.schedule });
+      }
       setWarn(null);
     }
     var snapshot = useMemo(function () {
-      return { app: "quiet-desk", version: 2, exportedAt: new Date().toISOString(),
-        tasks: tasks, schedule: sched, habits: habits, markets: markets };
-    }, [tasks, sched, habits, markets]);
+      return { app: "quiet-desk", version: 3, exportedAt: new Date().toISOString(),
+        tasks: tasks, recap: recap, quotes: quotes, shopping: shopping,
+        habits: retired.habits, markets: retired.markets, schedule: retired.schedule };
+    }, [tasks, recap, quotes, shopping, retired]);
 
     /* ---- derived ---- */
     var rankedToday = useMemo(function () { return QD.rankToday(tasks.items, today); }, [tasks.items, today]);
     var doneToday = useMemo(function () {
       return QD.completedInBucket(tasks.items, "today", today);
     }, [tasks.items, today]);
-    var nextEventId = useMemo(function () {
-      for (var i = 0; i < sched.events.length; i++) {
-        if (timeToMinutes(sched.events[i].time) >= clock) return sched.events[i].id;
-      }
-      return null;
-    }, [sched.events, clock]);
-    var week = useMemo(function () {
-      var out = [];
-      for (var i = 6; i >= 0; i--) out.push(QD.shiftKey(today, -i));
-      return out;
-    }, [today]);
+    var quoteList = useMemo(function () { return QD.activeQuotes(quotes); }, [quotes]);
+    var todayQuote = useMemo(function () {
+      return QD.quoteForDay(quoteList, today);
+    }, [quoteList, today]);
+    var recapWeek = useMemo(function () {
+      return QD.recapDays(recap, tasks.items, today, 7);
+    }, [recap, tasks.items, today]);
     var showInstallHint = useMemo(function () {
       if (prefs.installHintDismissed) return false;
       var standalone = window.navigator.standalone === true ||
@@ -1093,120 +1147,123 @@
       onRemind: function (when) { remind(editingTask, when); }
     }) : null;
 
-    if (briefOpen) {
-      return h(React.Fragment, null,
-        h(Brief, {
-          today: today, items: tasks.items, prefs: prefs,
-          onToggle: toggleTask, onDelete: deleteTask, onOptions: setEditingId,
-          onPromote: promoteToToday, onNotToday: notToday, onStale: onStale,
-          onClose: function () { setBriefOpen(false); }
-        }),
-        composer,
-        dumping ? h(BrainDump, { onClose: function () { setDumping(false); },
-          today: today, onAdd: addParsed }) : null,
-        taskSheet);
-    }
-
-    var d = QD.keyToDate(today);
-    return h(React.Fragment, null,
-      div({ className: "page" },
-        header({ className: "head" },
-          span({ className: "wd" }, WD[d.getDay()]),
-          span({ className: "dt" }, nzDate(d)),
-          button({ className: "briefLink", onClick: function () { setBriefOpen(true); } }, "Today's brief")),
-
-        warn ? div({ className: "banner", role: "status" }, span(null, warn)) : null,
-
-        showInstallHint ? div({ className: "banner" },
-          span(null, "Tap Share, then ", h("strong", null, "Add to Home Screen"),
-            ", to run this full screen and offline."),
-          button({ className: "x", "aria-label": "Dismiss",
-            onClick: function () {
-              setPrefs(Object.assign({}, prefs, { installHintDismissed: true }));
-            } }, icon(I_X, 16))) : null,
-
-        section({ className: "sec" },
-          h(Eyebrow, { title: "Today", hint: rankedToday.length ? rankedToday.length + " open" : null }),
-          rankedToday.length === 0 && doneToday.length === 0
-            ? p({ className: "empty-note" }, "Nothing on today's list.")
-            : div({ className: "tasks" }, rankedToday.concat(doneToday).map(function (t) {
-                return h(TaskRow, {
-                  key: t.id, task: t, today: today,
-                  onToggle: function () { toggleTask(t.id); },
-                  onDelete: function () { deleteTask(t.id); },
-                  onOptions: function () { setEditingId(t.id); }
-                });
-              })),
-          tasks.doneYesterday > 0
-            ? p({ className: "tally" }, tasks.doneYesterday +
-                (tasks.doneYesterday === 1 ? " task" : " tasks") + " done yesterday")
-            : null),
-
-        ["this_week", "this_month", "future"].map(function (b) {
-          return h(BucketSection, {
-            key: b, label: QD.BUCKET_LABEL[b], today: today,
-            items: QD.inBucket(tasks.items, b),
-            done: QD.completedInBucket(tasks.items, b, today),
-            onToggle: toggleTask, onDelete: deleteTask, onOptions: setEditingId
-          });
-        }),
-
-        section({ className: "sec" },
-          h(Eyebrow, { title: "Today's schedule" }),
-          sched.events.length === 0
-            ? p({ className: "empty-note" }, "Nothing scheduled.")
-            : div(null, sched.events.map(function (ev) {
-                var past = timeToMinutes(ev.time) < clock;
-                var isNext = ev.id === nextEventId;
-                return div({ className: "evrow" + (past ? " past" : "") + (isNext ? " next" : ""), key: ev.id },
-                  span({ className: "t" }, ev.time),
-                  span({ className: "ti" }, ev.title, isNext ? span({ className: "nextpill" }, "Next") : null),
-                  button({ className: "iconbtn", onClick: function () { deleteEvent(ev.id); },
-                    "aria-label": "Delete event: " + ev.title }, icon(I_X, 16)));
-              })),
-          h("form", { className: "addrow", onSubmit: addEvent },
-            input({ className: "field time", type: "time", value: evTime, "aria-label": "Event time",
-              onChange: function (e) { setEvTime(e.target.value); } }),
-            input({ className: "field", value: evTitle, placeholder: "Event", "aria-label": "Event title",
-              enterKeyHint: "done", onChange: function (e) { setEvTitle(e.target.value); } }),
-            button({ className: "btn", type: "submit", disabled: !evTime || !evTitle.trim(),
-              "aria-label": "Add event" }, icon(I_PLUS, 18)))),
-
-        section({ className: "sec" },
-          h(Eyebrow, { title: "Habits", hint: "Last 7 days" }),
-          div(null, HABITS.map(function (hab) {
-            var on = !!((habits.days[today] || {})[hab.id]);
-            return div({ className: "habit", key: hab.id },
-              button({ className: "tapzone", onClick: function () { toggleHabit(hab.id); },
-                "aria-pressed": on ? "true" : "false", "aria-label": hab.name + " today" },
-                h(Check, { on: on }),
-                span({ className: "name" }, hab.name, h("em", null, hab.sub))),
-              div({ className: "dots", role: "img", "aria-label": weekLabel(habits, week, hab) },
-                week.map(function (k, i) {
-                  var lit = !!((habits.days[k] || {})[hab.id]);
-                  return span({ key: k, className: "dot" + (lit ? " on" : "") + (i === 6 ? " today" : "") });
-                })));
-          }))),
-
-        h(Markets, { data: markets,
-          onSave: function (items) { setMarkets({ items: items, updatedAt: new Date().toISOString() }); } }),
-
-        footer({ className: "foot" },
-          p({ className: "note" },
-            "Everything here is stored on this device and never leaves it. Unfinished tasks stay until you finish them; finished ones clear at midnight."),
-          div({ className: "footrow" },
-            button({ className: "linkbtn", onClick: function () { setBacking(true); } }, "Back up & restore"),
-            button({ className: "linkbtn danger" + (armed ? " armed" : ""),
-              onClick: function () { if (armed) { resetAll(); } else { setArmed(true); } },
-              onBlur: function () { setArmed(false); } },
-              armed ? "Tap again to erase everything" : "Reset all data")))),
-
-      composer,
+    var overlays = h(React.Fragment, null,
       dumping ? h(BrainDump, { onClose: function () { setDumping(false); },
         today: today, onAdd: addParsed }) : null,
       backing ? h(Backup, { onClose: function () { setBacking(false); },
         snapshot: snapshot, onRestore: restore }) : null,
       taskSheet);
+
+    function home() { setBriefOpen(false); setRoute("home"); }
+
+    /* The morning brief belongs to Tasks: it opens the first time Tasks is
+       visited each day, and is reachable from its header after that. */
+    function openApp(id) {
+      if (id === "tasks" && prefs.lastBriefShownOn !== today) {
+        setBriefOpen(true);
+        setPrefs({ installHintDismissed: prefs.installHintDismissed,
+                   lastBriefShownOn: today, lastStaleAskOn: prefs.lastStaleAskOn });
+      }
+      setRoute(id);
+    }
+
+    /* ---------- home ---------- */
+    if (route === "home") {
+      return h(Home, { today: today, quote: todayQuote, warn: warn, onOpen: openApp });
+    }
+
+    /* ---------- tasks ---------- */
+    if (route === "tasks") {
+      if (briefOpen) {
+        return h(React.Fragment, null,
+          h(Screen, { title: null, onBack: home },
+            h(Brief, {
+              today: today, items: tasks.items, prefs: prefs,
+              onToggle: toggleTask, onDelete: deleteTask, onOptions: setEditingId,
+              onPromote: promoteToToday, onNotToday: notToday, onStale: onStale,
+              onClose: function () { setBriefOpen(false); }
+            })),
+          composer, overlays);
+      }
+      var d = QD.keyToDate(today);
+      return h(React.Fragment, null,
+        h(Screen, { title: "Tasks", onBack: home },
+          div({ className: "page" },
+            header({ className: "head" },
+              span({ className: "wd" }, WD[d.getDay()]),
+              span({ className: "dt" }, nzDate(d)),
+              button({ className: "briefLink", onClick: function () { setBriefOpen(true); } },
+                "Today's brief")),
+
+            warn ? div({ className: "banner", role: "status" }, span(null, warn)) : null,
+
+            showInstallHint ? div({ className: "banner" },
+              span(null, "Tap Share, then ", h("strong", null, "Add to Home Screen"),
+                ", to run this full screen and offline."),
+              button({ className: "x", "aria-label": "Dismiss",
+                onClick: function () {
+                  setPrefs(Object.assign({}, prefs, { installHintDismissed: true }));
+                } }, icon(I_X, 16))) : null,
+
+            section({ className: "sec" },
+              h(Eyebrow, { title: "Today",
+                hint: rankedToday.length ? rankedToday.length + " open" : null }),
+              rankedToday.length === 0 && doneToday.length === 0
+                ? p({ className: "empty-note" }, "Nothing on today's list.")
+                : div({ className: "tasks" }, rankedToday.concat(doneToday).map(function (t) {
+                    return h(TaskRow, {
+                      key: t.id, task: t, today: today,
+                      onToggle: function () { toggleTask(t.id); },
+                      onDelete: function () { deleteTask(t.id); },
+                      onOptions: function () { setEditingId(t.id); }
+                    });
+                  })),
+              tasks.doneYesterday > 0
+                ? p({ className: "tally" }, tasks.doneYesterday +
+                    (tasks.doneYesterday === 1 ? " task" : " tasks") + " done yesterday")
+                : null),
+
+            ["this_week", "this_month", "future"].map(function (b) {
+              return h(BucketSection, {
+                key: b, label: QD.BUCKET_LABEL[b], today: today,
+                items: QD.inBucket(tasks.items, b),
+                done: QD.completedInBucket(tasks.items, b, today),
+                onToggle: toggleTask, onDelete: deleteTask, onOptions: setEditingId
+              });
+            }),
+
+            footer({ className: "foot" },
+              p({ className: "note" },
+                "Everything here is stored on this device and never leaves it."),
+              div({ className: "footrow" },
+                button({ className: "linkbtn", onClick: function () { setBacking(true); } },
+                  "Back up & restore"),
+                button({ className: "linkbtn danger" + (armed ? " armed" : ""),
+                  onClick: function () { if (armed) { resetAll(); } else { setArmed(true); } },
+                  onBlur: function () { setArmed(false); } },
+                  armed ? "Tap again to erase everything" : "Reset all data"))))),
+        composer, overlays);
+    }
+
+    /* ---------- the other apps ---------- */
+    if (route === "quotes") {
+      return h(React.Fragment, null,
+        h(QuotesApp, { onBack: home, quote: todayQuote, list: quoteList,
+          onAdd: addQuote, onDelete: deleteQuote, onAdoptDefaults: adoptDefaults }),
+        overlays);
+    }
+    if (route === "recap") {
+      return h(React.Fragment, null,
+        h(RecapApp, { onBack: home, days: recapWeek, today: today }), overlays);
+    }
+    if (route === "shopping") {
+      return h(React.Fragment, null,
+        h(ShoppingApp, { onBack: home, items: shopping.items,
+          onAdd: addShopping, onToggle: toggleShopping,
+          onDelete: deleteShopping, onClearGot: clearGot }),
+        overlays);
+    }
+    return h(Home, { today: today, quote: todayQuote, warn: warn, onOpen: openApp });
   }
 
   ReactDOM.createRoot(document.getElementById("root")).render(h(App));

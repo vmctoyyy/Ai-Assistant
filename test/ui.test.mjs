@@ -45,6 +45,29 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
       rq.onsuccess = () => r(rq.result ? rq.result.items : []); };
   }));
   await pg.goto(`${BASE}/index.html`);
+  await pg.waitForSelector('.home', { timeout: 10000 });
+
+  console.log('-- home screen --');
+  const homeGeo = await pg.evaluate(() => {
+    const vp = window.innerHeight;
+    const head = document.querySelector('.home-head').getBoundingClientRect();
+    return { vp, headPct: Math.round(head.height / vp * 100),
+             scrolls: document.documentElement.scrollHeight > vp + 1,
+             tiles: document.querySelectorAll('.tile').length,
+             tappable: document.querySelectorAll('button.tile').length,
+             gridText: document.querySelector('.home-grid').innerText.trim() };
+  });
+  check('home fills the viewport and does not scroll', !homeGeo.scrolls);
+  check('header is the top quarter', Math.abs(homeGeo.headPct - 25) <= 1, homeGeo.headPct + '%');
+  check('six tiles, four tappable', homeGeo.tiles === 6 && homeGeo.tappable === 4,
+    `${homeGeo.tiles}/${homeGeo.tappable}`);
+  check('no text labels under the icons', homeGeo.gridText === '');
+  check('date and quote are present',
+    !!(await pg.locator('.hh-date').innerText()) && !!(await pg.locator('.hh-quote').innerText()));
+  check('the three removed apps are gone from home',
+    !/Markets|Habits|Schedule/i.test(await pg.locator('.home').innerText()));
+
+  await pg.locator('button.tile[aria-label="Tasks"]').tap();
   await pg.waitForSelector('.brief', { timeout: 10000 });
 
   console.log('-- composer: chip taps with an EMPTY input --');
@@ -241,6 +264,56 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   await pg.getByRole('button', { name: 'Close' }).tap();
   await pg.waitForTimeout(250);
   check('backup closes', await pg.locator('.sheet').count() === 0);
+  console.log('-- quotes, recap, shopping --');
+  await pg.locator('.backbtn').tap();
+  await pg.waitForSelector('.home', { timeout: 5000 });
+  await pg.locator('button.tile[aria-label="Quotes"]').tap();
+  await pg.waitForSelector('.qt-text', { timeout: 5000 });
+  const todaysQuote = await pg.locator('.qt-text').innerText();
+  check('quotes shows today\'s quote first', todaysQuote.length > 0);
+  const beforeCount = await pg.locator('.quote-row').count();
+  await pg.locator('input[aria-label="Quote"]').fill('A quiet room in morning light.');
+  await pg.locator('input[aria-label="Source"]').fill('Me');
+  await pg.locator('.quote-add .btn').tap();
+  await pg.waitForTimeout(400);
+  check('adding a quote replaces the built-ins with my list',
+    await pg.locator('.quote-row').count() === 1, `was ${beforeCount}`);
+  check('my quote is stored', (await pg.evaluate(() => new Promise(r => {
+    const q = indexedDB.open('quietdesk',1);
+    q.onsuccess = () => { const rq = q.result.transaction('kv','readonly').objectStore('kv').get('quotes');
+      rq.onsuccess = () => r(rq.result ? rq.result.list.length : 0); };
+  }))) === 1);
+  await pg.locator('.quote-row .iconbtn').first().tap();
+  await pg.waitForTimeout(400);
+  check('deleting my last quote falls back to the built-ins',
+    await pg.locator('.quote-row').count() > 20, String(await pg.locator('.quote-row').count()));
+
+  await pg.locator('.backbtn').tap();
+  await pg.waitForSelector('.home', { timeout: 5000 });
+  await pg.locator('button.tile[aria-label="Shopping List"]').tap();
+  await pg.waitForSelector('.shop-add', { timeout: 5000 });
+  await pg.locator('input[aria-label="Add an item"]').fill('Oat milk');
+  await pg.locator('.shop-add .btn').tap();
+  await pg.waitForTimeout(350);
+  check('shopping item added', await pg.locator('.screen-body .row').count() === 1);
+  await pg.locator('.screen-body .row .tickbtn').first().tap();
+  await pg.waitForTimeout(350);
+  check('ticked item moves to the basket, still visible',
+    await pg.locator('.row.done').count() === 1);
+  await pg.getByRole('button', { name: 'Clear these' }).tap();
+  await pg.waitForTimeout(350);
+  check('clear empties the basket', await pg.locator('.screen-body .row').count() === 0);
+
+  await pg.locator('.backbtn').tap();
+  await pg.waitForSelector('.home', { timeout: 5000 });
+  await pg.locator('button.tile[aria-label="Recap"]').tap();
+  await pg.waitForSelector('.recap-lead', { timeout: 5000 });
+  check('recap opens and reports a count',
+    /finished in the last seven days/.test(await pg.locator('.recap-lead').innerText()),
+    await pg.locator('.recap-lead').innerText());
+  await pg.locator('.backbtn').tap();
+  await pg.waitForSelector('.home', { timeout: 5000 });
+  check('back always returns home', await pg.locator('.home').count() === 1);
   console.log('  errors:', errs.length ? errs : 'none');
   await ctx.close();
 }

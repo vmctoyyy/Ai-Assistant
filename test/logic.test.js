@@ -634,6 +634,100 @@ t("parsed output is a valid task once made", function () {
   assert.strictEqual(QD.dueLabel(task.dueDate, task.dueTime, TODAY), "10:00 · Tuesday");
 });
 
+console.log("\nquotes");
+t("a day gets the same quote however often you look", function () {
+  var list = QD.activeQuotes(null);
+  var a = QD.quoteForDay(list, TODAY);
+  for (var i = 0; i < 20; i++) {
+    assert.strictEqual(QD.quoteForDay(list, TODAY).text, a.text);
+  }
+});
+t("and a different one tomorrow", function () {
+  var list = QD.activeQuotes(null);
+  assert.notStrictEqual(QD.quoteForDay(list, TODAY).text,
+    QD.quoteForDay(list, QD.shiftKey(TODAY, 1)).text);
+});
+t("it ships with thirty, all with text and a source", function () {
+  assert.strictEqual(QD.DEFAULT_QUOTES.length, 30);
+  QD.DEFAULT_QUOTES.forEach(function (q) {
+    assert.ok(q.text && q.text.length > 3, JSON.stringify(q));
+    assert.ok(q.source && q.source.length > 1, JSON.stringify(q));
+    assert.ok(q.text.indexOf("!") === -1, "no exclamations: " + q.text);
+  });
+});
+t("an empty list falls back to the built-ins", function () {
+  assert.strictEqual(QD.activeQuotes(null).length, 30);
+  assert.strictEqual(QD.activeQuotes({ list: [] }).length, 30);
+  assert.ok(QD.activeQuotes(null)[0].builtIn);
+});
+t("one saved quote replaces the built-ins entirely", function () {
+  var mine = QD.activeQuotes({ list: [{ id: "x", text: "Mine", source: "Me" }] });
+  assert.strictEqual(mine.length, 1);
+  assert.strictEqual(mine[0].text, "Mine");
+  assert.strictEqual(QD.quoteForDay(mine, TODAY).text, "Mine", "one quote every day");
+});
+t("junk entries are dropped, strings are accepted", function () {
+  var out = QD.normQuotes({ list: [null, "", { text: "  " }, "A bare string", { text: "Kept" }] });
+  assert.deepStrictEqual(out.list.map(function (q) { return q.text; }), ["A bare string", "Kept"]);
+  assert.ok(out.list[0].id, "ids are minted");
+});
+t("every day of a year lands on a real quote", function () {
+  var list = QD.activeQuotes(null), key = "2026-01-01";
+  for (var i = 0; i < 365; i++) {
+    assert.ok(QD.quoteForDay(list, key), key);
+    key = QD.shiftKey(key, 1);
+  }
+});
+
+console.log("\nrecap");
+t("the day's finished work is archived before it is cleared", function () {
+  var items = [
+    task("done1", { completedAt: ms(TODAY, 9) }),
+    task("done2", { completedAt: ms(TODAY, 15) }),
+    task("open", {})
+  ];
+  var rc = QD.archiveCompleted(QD.blankRecap(), items, TODAY);
+  assert.deepStrictEqual(rc.days[TODAY].map(function (r) { return r.title; }), ["done1", "done2"]);
+  assert.strictEqual(rc.days[TODAY].length, 2, "open tasks are not archived");
+});
+t("archiving nothing changes nothing", function () {
+  var rc = QD.archiveCompleted(QD.blankRecap(), [task("open", {})], TODAY);
+  assert.deepStrictEqual(rc.days, {});
+});
+t("recap reads today live and past days from the archive", function () {
+  var rc = { days: { "2026-09-08": [{ title: "Older thing", at: 1 }] } };
+  var live = [task("today", { completedAt: ms(TODAY, 11) })];
+  var days = QD.recapDays(rc, live, TODAY, 7);
+  assert.deepStrictEqual(days.map(function (d) { return d.date; }), [TODAY, "2026-09-08"]);
+  assert.strictEqual(days[0].items[0].title, "today");
+  assert.strictEqual(days[1].items[0].title, "Older thing");
+});
+t("empty days are left out", function () {
+  assert.deepStrictEqual(QD.recapDays(QD.blankRecap(), [], TODAY, 7), []);
+});
+t("the archive is pruned but keeps a long tail", function () {
+  var days = {};
+  days[QD.shiftKey(TODAY, -10)] = [{ title: "recent" }];
+  days[QD.shiftKey(TODAY, -90)] = [{ title: "ancient" }];
+  var out = QD.pruneRecap({ days: days }, TODAY, 60);
+  assert.ok(out.days[QD.shiftKey(TODAY, -10)], "10 days ago kept");
+  assert.ok(!out.days[QD.shiftKey(TODAY, -90)], "90 days ago dropped");
+});
+
+console.log("\nshopping");
+t("items normalise, junk is dropped", function () {
+  var out = QD.normShopping({ items: [{ name: "Oat milk" }, null, { got: true }, { name: "Bread", got: true }] });
+  assert.deepStrictEqual(out.items.map(function (i) { return i.name; }), ["Oat milk", "Bread"]);
+  assert.strictEqual(out.items[0].got, false);
+  assert.strictEqual(out.items[1].got, true);
+  assert.ok(out.items[0].id);
+});
+t("a missing or malformed list gives an empty one", function () {
+  [null, undefined, {}, { items: "nope" }, 7].forEach(function (junk) {
+    assert.deepStrictEqual(QD.normShopping(junk).items, []);
+  });
+});
+
 console.log("\nsinceLabel");
 t("reads naturally across the week", function () {
   assert.strictEqual(QD.sinceLabel("2026-09-08", TODAY), "yesterday");

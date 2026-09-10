@@ -576,6 +576,137 @@
       .filter(Boolean);
   }
 
+
+  /* ---------- quotes ----------
+     Calm and reflective by design. Sources are ones with well-documented
+     attribution; the user can edit the whole list, so nothing here is fixed. */
+  var DEFAULT_QUOTES = [
+    { text: "Confine yourself to the present.", source: "Marcus Aurelius" },
+    { text: "Very little is needed to make a happy life.", source: "Marcus Aurelius" },
+    { text: "The soul becomes dyed with the colour of its thoughts.", source: "Marcus Aurelius" },
+    { text: "Never let the future disturb you. You will meet it with the same weapons of reason which today arm you against the present.", source: "Marcus Aurelius" },
+    { text: "We suffer more often in imagination than in reality.", source: "Seneca" },
+    { text: "It is not that we have a short time to live, but that we waste much of it.", source: "Seneca" },
+    { text: "Begin at once to live, and count each separate day as a separate life.", source: "Seneca" },
+    { text: "He who is everywhere is nowhere.", source: "Seneca" },
+    { text: "It is not things that disturb us, but our opinions about things.", source: "Epictetus" },
+    { text: "No man is free who is not master of himself.", source: "Epictetus" },
+    { text: "Nature does not hurry, yet everything is accomplished.", source: "Lao Tzu" },
+    { text: "Muddy water, let stand, becomes clear.", source: "Lao Tzu" },
+    { text: "A journey of a thousand miles begins beneath one's feet.", source: "Lao Tzu" },
+    { text: "How we spend our days is, of course, how we spend our lives.", source: "Annie Dillard" },
+    { text: "Be patient toward all that is unsolved in your heart.", source: "Rainer Maria Rilke" },
+    { text: "Perhaps all the dragons in our lives are princesses who are only waiting to see us act, just once, with beauty and courage.", source: "Rainer Maria Rilke" },
+    { text: "The impeded stream is the one that sings.", source: "Wendell Berry" },
+    { text: "I go among trees and sit still.", source: "Wendell Berry" },
+    { text: "It is not enough to be busy. The question is: what are we busy about?", source: "Henry David Thoreau" },
+    { text: "I went to the woods because I wished to live deliberately.", source: "Henry David Thoreau" },
+    { text: "Simplify, simplify.", source: "Henry David Thoreau" },
+    { text: "The day is what you make it, so why not make it a good one?", source: "Steve Schulte" },
+    { text: "My life has been full of terrible misfortunes, most of which never happened.", source: "Michel de Montaigne" },
+    { text: "The greatest thing in the world is to know how to belong to oneself.", source: "Michel de Montaigne" },
+    { text: "Sitting quietly, doing nothing, spring comes, and the grass grows by itself.", source: "Zen proverb" },
+    { text: "Before enlightenment, chop wood, carry water. After enlightenment, chop wood, carry water.", source: "Zen proverb" },
+    { text: "The old pond — a frog leaps in, the sound of water.", source: "Basho" },
+    { text: "Life is really simple, but we insist on making it complicated.", source: "Confucius" },
+    { text: "It does not matter how slowly you go so long as you do not stop.", source: "Confucius" },
+    { text: "Tell me, what is it you plan to do with your one wild and precious life?", source: "Mary Oliver" }
+  ];
+
+  function normQuotes(v) {
+    var list = (v && Array.isArray(v.list) ? v.list : [])
+      .map(function (q) {
+        if (!q) return null;
+        var text = typeof q === "string" ? q : q.text;
+        if (!text || !String(text).trim()) return null;
+        return {
+          id: (q && q.id) || uid(),
+          text: String(text).trim(),
+          source: q && q.source ? String(q.source).trim() : ""
+        };
+      }).filter(Boolean);
+    return { list: list };
+  }
+  /* An empty list falls back to the built-ins rather than showing nothing. */
+  function activeQuotes(stored) {
+    var norm = normQuotes(stored);
+    return norm.list.length ? norm.list : DEFAULT_QUOTES.map(function (q, i) {
+      return { id: "d" + i, text: q.text, source: q.source, builtIn: true };
+    });
+  }
+  /* Deterministic from the date, so it holds all day and turns at midnight. */
+  function quoteForDay(list, dayKey) {
+    if (!list || !list.length) return null;
+    var n = daysBetween("2000-01-01", dayKey);
+    return list[((n % list.length) + list.length) % list.length];
+  }
+
+  /* ---------- recap ----------
+     Completed tasks are cleared at midnight, so the day's work is archived
+     on the way out and Recap reads from there. */
+  function blankRecap() { return { days: {} }; }
+  function normRecap(v) {
+    if (!v || typeof v !== "object" || !v.days || typeof v.days !== "object") return blankRecap();
+    return { days: v.days };
+  }
+  function archiveCompleted(recap, items, dayKey) {
+    var done = items.filter(function (t) { return !!t.completedAt; })
+      .sort(function (a, b) { return a.completedAt - b.completedAt; })
+      .map(function (t) {
+        return { title: t.title, at: t.completedAt, importance: t.importance, bucket: t.bucket };
+      });
+    if (!done.length) return normRecap(recap);
+    var days = {};
+    var base = normRecap(recap).days;
+    Object.keys(base).forEach(function (k) { days[k] = base[k]; });
+    days[dayKey] = (days[dayKey] || []).concat(done);
+    return { days: days };
+  }
+  function pruneRecap(recap, today, keep) {
+    var limit = keep || 60, seen = {};
+    for (var i = 0; i < limit; i++) seen[shiftKey(today, -i)] = true;
+    var days = {}, base = normRecap(recap).days;
+    Object.keys(base).forEach(function (k) { if (seen[k]) days[k] = base[k]; });
+    return { days: days };
+  }
+  /* Newest first, today included live from the current task list. */
+  function recapDays(recap, liveItems, today, span) {
+    var base = normRecap(recap).days;
+    var out = [];
+    for (var i = 0; i < (span || 7); i++) {
+      var key = shiftKey(today, -i);
+      var rows = key === today
+        ? completedInBucketAny(liveItems || [], today)
+        : (base[key] || []).slice();
+      if (rows.length) out.push({ date: key, items: rows });
+    }
+    return out;
+  }
+  function completedInBucketAny(items, today) {
+    return items.filter(function (t) {
+      return !!t.completedAt && msToKey(t.completedAt) === today;
+    }).sort(function (a, b) { return a.completedAt - b.completedAt; })
+      .map(function (t) {
+        return { title: t.title, at: t.completedAt, importance: t.importance, bucket: t.bucket };
+      });
+  }
+
+  /* ---------- shopping ---------- */
+  function blankShopping() { return { items: [] }; }
+  function normShopping(v) {
+    if (!v || typeof v !== "object" || !Array.isArray(v.items)) return blankShopping();
+    return {
+      items: v.items.filter(function (i) { return i && i.name; }).map(function (i) {
+        return {
+          id: i.id || uid(),
+          name: String(i.name),
+          got: !!i.got,
+          at: typeof i.at === "number" ? i.at : Date.now()
+        };
+      })
+    };
+  }
+
   /* ---------- calendar export ----------
      A static site has no push server, so a reminder is a real calendar event
      with a 30-minute alarm. Floating local time: 12:30 means 12:30 wherever
@@ -640,6 +771,11 @@
     isFixedToday: isFixedToday, fixedPoints: fixedPoints, flexibleToday: flexibleToday,
     pickAnchored: pickAnchored, planLine: planLine, buildICS: buildICS,
     parseTaskLine: parseTaskLine, parseBrainDump: parseBrainDump,
+    DEFAULT_QUOTES: DEFAULT_QUOTES, normQuotes: normQuotes, activeQuotes: activeQuotes,
+    quoteForDay: quoteForDay,
+    blankRecap: blankRecap, normRecap: normRecap, archiveCompleted: archiveCompleted,
+    pruneRecap: pruneRecap, recapDays: recapDays,
+    blankShopping: blankShopping, normShopping: normShopping,
     bucketForDate: bucketForDate,
     greetingLine: greetingLine, startHere: startHere, allDoneLine: allDoneLine
   };
