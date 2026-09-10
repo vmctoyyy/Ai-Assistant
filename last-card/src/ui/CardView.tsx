@@ -29,7 +29,7 @@ export function CardView({ card, as, selected, dimmed, size = 'md', onTap, label
 
   const body = joker ? (
     <>
-      <span className="card-rank">JOKER</span>
+      <span className="card-rank card-rank-joker">JOKER</span>
       {as ? (
         <span className="card-called">
           as {as.rank}

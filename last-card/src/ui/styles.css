@@ -35,10 +35,14 @@ body {
 
 /* Flex column rather than sticky positioning, so the safe area is never
    something the layout depends on. */
+/* The game is built for a phone; on anything wider it stays phone-shaped and
+   centred rather than stretching a hand of cards across a desk monitor. */
 .screen {
   display: flex;
   flex-direction: column;
   height: 100%;
+  max-width: 520px;
+  margin: 0 auto;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
     env(safe-area-inset-left);
   background: radial-gradient(120% 80% at 50% 0%, var(--felt) 0%, var(--felt-deep) 70%);
@@ -298,6 +302,12 @@ body {
 .card-pip {
   font-size: 1.25em;
   line-height: 1;
+}
+
+/* "JOKER" is six characters on a card sized for two, so it gets its own size. */
+.card-rank-joker {
+  font-size: 0.52em;
+  letter-spacing: 0.04em;
 }
 
 .card-called {
@@ -566,6 +576,8 @@ body {
   position: fixed;
   left: 16px;
   right: 16px;
+  max-width: 488px;
+  margin-inline: auto;
   bottom: calc(24px + env(safe-area-inset-bottom));
   z-index: 30;
   padding: 14px 16px;
