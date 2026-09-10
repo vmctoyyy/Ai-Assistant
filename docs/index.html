@@ -49,6 +49,7 @@
   --tile-4:#EAE2D5;
   --tile-5:#F6F1E9;
   --tap:52px;
+  --bubble-r:30px;
   --wrap:34rem;
   --serif:"Newsreader",ui-serif,Georgia,"Times New Roman",serif;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
@@ -82,9 +83,8 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 .page{
   max-width:var(--wrap);
   margin:0 auto;
-  padding:calc(1.75rem + env(safe-area-inset-top,0px)) 1.125rem
-          calc(var(--composer-h, 5.5rem) + 2.25rem);
-  display:flex;flex-direction:column;gap:2.75rem;
+  padding:1.5rem 1.125rem 2rem;
+  display:flex;flex-direction:column;gap:2rem;
 }
 
 /* header */
@@ -136,7 +136,7 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 }
 .rowwrap.sliding::after{opacity:1}
 .row{
-  position:relative;background:var(--ground);
+  position:relative;background:var(--surface);
   display:flex;align-items:center;gap:.25rem;
   padding:.5rem 0;border-bottom:1px solid var(--line);touch-action:pan-y;
 }
@@ -160,7 +160,7 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 
 /* ---- shared controls (used by every remaining app) ---- */
 .field{
-  background:var(--surface);border:1px solid var(--line);border-radius:12px;
+  background:var(--ground);border:1px solid var(--line);border-radius:12px;
   padding:.6875rem .875rem;min-height:48px;width:100%;color:var(--ink);
   transition:border-color .18s ease, box-shadow .18s ease;
 }
@@ -168,7 +168,7 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 .field:focus{outline:none;border-color:var(--line-2);box-shadow:0 0 0 3px var(--accent-soft)}
 .field.stamp{width:auto;flex:1;min-width:0;font-family:var(--mono);min-height:44px}
 .btn{
-  background:var(--surface);border:1px solid var(--line-2);border-radius:12px;
+  background:var(--ground);border:1px solid var(--line-2);border-radius:12px;
   padding:.625rem 1rem;min-height:48px;
   font-size:.875rem;font-weight:500;color:var(--ink-2);white-space:nowrap;
   transition:opacity .18s ease, transform .18s ease;
@@ -188,9 +188,10 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 
 /* composer */
 .composer{
-  position:fixed;left:0;right:0;bottom:0;z-index:20;
-  background:var(--ground);border-top:1px solid var(--line);
-  padding:.625rem 1.125rem calc(.625rem + env(safe-area-inset-bottom,0px));
+  flex:none;background:var(--surface);
+  border-top:1px solid var(--line);
+  border-radius:0 0 var(--bubble-r) var(--bubble-r);
+  padding:.75rem 1.125rem .875rem;
 }
 .composer .inner{max-width:var(--wrap);margin:0 auto;display:flex;gap:.5rem;align-items:center}
 .composer .btn{flex:none;padding-left:.875rem;padding-right:.875rem}
@@ -208,11 +209,18 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 }
 
 /* sheets */
-.scrim{position:fixed;inset:0;z-index:40;background:rgba(12,16,14,.42);display:flex;align-items:flex-end;justify-content:center}
+.scrim{
+  position:fixed;inset:0;z-index:40;
+  background:rgba(74,58,40,.28);backdrop-filter:blur(2px);
+  display:flex;align-items:flex-end;justify-content:center;
+  padding:.5rem .5rem calc(.5rem + env(safe-area-inset-bottom,0px));
+}
 .sheet{
-  background:var(--ground);width:100%;max-width:var(--wrap);
-  border-radius:16px 16px 0 0;border:1px solid var(--line);border-bottom:0;
-  padding:1.25rem 1.125rem calc(1.25rem + env(safe-area-inset-bottom,0px));
+  background:var(--surface);width:100%;max-width:var(--wrap);
+  border-radius:var(--bubble-r);border:0;
+  box-shadow:0 2px 6px rgba(90,72,50,.08), 0 16px 40px rgba(90,72,50,.12);
+  animation:bubbleIn .22s cubic-bezier(.22,.7,.3,1) both;
+  padding:1.25rem 1.125rem 1.25rem;
   display:flex;flex-direction:column;gap:.875rem;
   max-height:88dvh;overflow:hidden;
 }
@@ -432,11 +440,30 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 }
 
 /* ---- app screens ---- */
-.screen{min-height:100dvh;min-height:100vh;display:flex;flex-direction:column}
+/* An app opens as a soft bubble resting on the page, not a full-bleed sheet
+   with hard viewport corners. The bubble is the scroll container. */
+.screen{
+  height:100dvh;height:100vh;
+  display:flex;
+  padding:calc(.5rem + env(safe-area-inset-top,0px)) .5rem
+          calc(.5rem + env(safe-area-inset-bottom,0px));
+}
+.bubble{
+  flex:1;min-height:0;display:flex;flex-direction:column;
+  background:var(--surface);
+  border-radius:var(--bubble-r);
+  overflow:hidden;
+  box-shadow:0 1px 2px rgba(90,72,50,.05), 0 10px 30px rgba(90,72,50,.07);
+  animation:bubbleIn .24s cubic-bezier(.22,.7,.3,1) both;
+}
+@keyframes bubbleIn{
+  from{opacity:0;transform:scale(.985)}
+  to{opacity:1;transform:scale(1)}
+}
 .screen-top{
-  position:sticky;top:0;z-index:15;background:var(--ground);
+  flex:none;background:var(--surface);
   display:flex;align-items:center;gap:.75rem;
-  padding:calc(.5rem + env(safe-area-inset-top,0px)) 1.125rem .5rem;
+  padding:.875rem 1.125rem .625rem;
 }
 .backbtn{
   display:flex;align-items:center;gap:.25rem;
@@ -448,13 +475,13 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 .screen-title{
   font-family:var(--serif);font-size:1.0625rem;color:var(--ink-3);
 }
-.screen-body{flex:1 1 auto}
+.screen-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
 .screen-body > .page{padding-top:.5rem}
 
 /* ---- quotes ---- */
 .quote-today{
   margin:0 1.125rem 1.5rem;padding:1.5rem 1.375rem;
-  background:var(--surface);border-radius:18px;
+  background:var(--ground);border-radius:20px;
   box-shadow:0 1px 2px rgba(90,72,50,.05), 0 8px 20px rgba(90,72,50,.04);
   display:flex;flex-direction:column;gap:.5rem;
 }

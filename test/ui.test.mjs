@@ -222,6 +222,10 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   await pg.locator('.addbtn').tap();
   await pg.waitForTimeout(300);
   const swipeRow = pg.locator('.row').filter({ hasText: 'Swipe me away' });
+  /* The bubble scrolls, not the page, so a row can sit outside the visible
+     area — bring it into view before aiming pointer events at it. */
+  await swipeRow.scrollIntoViewIfNeeded();
+  await pg.waitForTimeout(150);
   const sb = await swipeRow.boundingBox();
   const sy = sb.y + sb.height / 2;
   await pg.mouse.move(sb.x + sb.width * 0.55, sy);
@@ -235,6 +239,8 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   await pg.locator('.addbtn').tap();
   await pg.waitForTimeout(300);
   const dragRow = pg.locator('.row').filter({ hasText: 'Short drag' });
+  await dragRow.scrollIntoViewIfNeeded();
+  await pg.waitForTimeout(150);
   const db = await dragRow.boundingBox();
   await pg.mouse.move(db.x + db.width * 0.55, db.y + db.height / 2);
   await pg.mouse.down();

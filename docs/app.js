@@ -636,11 +636,15 @@
   /* ---------- app screen shell ---------- */
   function Screen(props) {
     return div({ className: "screen" },
-      div({ className: "screen-top" },
-        button({ className: "backbtn", onClick: props.onBack, "aria-label": "Back to home" },
-          icon(I_BACK, 18), span(null, "Back")),
-        props.title ? span({ className: "screen-title" }, props.title) : null),
-      div({ className: "screen-body" }, props.children));
+      div({ className: "bubble" },
+        div({ className: "screen-top" },
+          button({ className: "backbtn", onClick: props.onBack, "aria-label": "Back to home" },
+            icon(I_BACK, 18), span(null, "Back")),
+          props.title ? span({ className: "screen-title" }, props.title) : null),
+        /* The body is the only scroller, so the composer sits on the bubble's
+           bottom edge instead of floating over the content. */
+        div({ className: "screen-body" }, props.children),
+        props.footer || null));
   }
 
   /* ---------- quotes ---------- */
@@ -875,24 +879,6 @@
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
       return function () { cancelled = true; };
     }, []);
-
-    /* The composer is fixed and changes height when its chips open, so the
-       page reserves exactly as much room as it currently needs. */
-    useEffect(function () {
-      var el = document.querySelector(".composer");
-      if (!el) return;
-      function sync() {
-        document.documentElement.style.setProperty("--composer-h", el.offsetHeight + "px");
-      }
-      sync();
-      var ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(sync) : null;
-      if (ro) ro.observe(el);
-      window.addEventListener("resize", sync);
-      return function () {
-        if (ro) ro.disconnect();
-        window.removeEventListener("resize", sync);
-      };
-    }, [loading, briefOpen]);
 
     /* clock tick */
     useEffect(function () {
@@ -1176,18 +1162,18 @@
     if (route === "tasks") {
       if (briefOpen) {
         return h(React.Fragment, null,
-          h(Screen, { title: null, onBack: home },
+          h(Screen, { title: null, onBack: home, footer: composer },
             h(Brief, {
               today: today, items: tasks.items, prefs: prefs,
               onToggle: toggleTask, onDelete: deleteTask, onOptions: setEditingId,
               onPromote: promoteToToday, onNotToday: notToday, onStale: onStale,
               onClose: function () { setBriefOpen(false); }
             })),
-          composer, overlays);
+          overlays);
       }
       var d = QD.keyToDate(today);
       return h(React.Fragment, null,
-        h(Screen, { title: "Tasks", onBack: home },
+        h(Screen, { title: "Tasks", onBack: home, footer: composer },
           div({ className: "page" },
             header({ className: "head" },
               span({ className: "wd" }, WD[d.getDay()]),
@@ -1242,7 +1228,7 @@
                   onClick: function () { if (armed) { resetAll(); } else { setArmed(true); } },
                   onBlur: function () { setArmed(false); } },
                   armed ? "Tap again to erase everything" : "Reset all data"))))),
-        composer, overlays);
+        overlays);
     }
 
     /* ---------- the other apps ---------- */
