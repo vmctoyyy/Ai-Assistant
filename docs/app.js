@@ -982,6 +982,7 @@
     var s18 = useState(false), briefOpen = s18[0], setBriefOpen = s18[1];
     var s19 = useState(null), editingId = s19[0], setEditingId = s19[1];
     var s20 = useState("home"), route = s20[0], setRoute = s20[1];
+    var s21 = useState(""), build = s21[0], setBuild = s21[1];
 
     var setTasks    = useCallback(function (v) { setTasksRaw(v);    save("tasks", v); }, []);
     var setRecap    = useCallback(function (v) { setRecapRaw(v);    save("recap", v); }, []);
@@ -1050,6 +1051,21 @@
         });
 
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
+      /* Read the version actually being served rather than a constant that
+         can drift from the service worker. On a first install the cache does
+         not exist yet at boot, so ask again once the worker is ready. */
+      function readBuild() {
+        if (!window.caches || !caches.keys) return;
+        caches.keys().then(function (names) {
+          if (cancelled) return;
+          var mine = names.filter(function (n) { return n.indexOf("quiet-desk-") === 0; });
+          if (mine.length) setBuild(mine.sort().pop().replace("quiet-desk-", ""));
+        }).catch(function () {});
+      }
+      readBuild();
+      if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+        navigator.serviceWorker.ready.then(readBuild).catch(function () {});
+      }
       return function () { cancelled = true; };
     }, []);
 
@@ -1450,7 +1466,8 @@
 
             footer({ className: "foot" },
               p({ className: "note" },
-                "Everything here is stored on this device and never leaves it."),
+                "Everything here is stored on this device and never leaves it.",
+                build ? span({ className: "build" }, "Build " + build) : null),
               div({ className: "footrow" },
                 button({ className: "linkbtn", onClick: function () { setBacking(true); } },
                   "Back up & restore"),
@@ -1537,8 +1554,27 @@
   ReactDOM.createRoot(document.getElementById("root")).render(h(App));
 
   if ("serviceWorker" in navigator) {
+    /* A new worker used to sit installed until the app was fully relaunched,
+       so an update could be live and still invisible. When one takes over,
+       reload once so the new build is on screen immediately. The guard stops
+       the very first install (which has no previous controller) reloading a
+       page that is already current. */
+    var hadController = !!navigator.serviceWorker.controller;
+    var reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      if (!hadController || reloading) return;
+      reloading = true;
+      window.location.reload();
+    });
     window.addEventListener("load", function () {
-      navigator.serviceWorker.register("sw.js").catch(function () {});
+      navigator.serviceWorker.register("sw.js").then(function (reg) {
+        /* Ask on every launch and whenever the app comes back to the front,
+           rather than only when the browser feels like it. */
+        reg.update().catch(function () {});
+        document.addEventListener("visibilitychange", function () {
+          if (document.visibilityState === "visible") reg.update().catch(function () {});
+        });
+      }).catch(function () {});
     });
   }
 })();

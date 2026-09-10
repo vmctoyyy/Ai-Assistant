@@ -44,6 +44,14 @@ Report the merge in the summary; do not ask permission for it.
 - **Bump `CACHE` in `docs/sw.js`** whenever any file listed in its `ASSETS`
   changes. Without it, installed copies keep serving the old version from
   cache and the user sees nothing change.
+- **Updates apply themselves.** The app reloads once when a new service
+  worker takes control, and asks for an update on launch and on every return
+  to the foreground. Before this, a shipped change could be live and still
+  invisible until a full relaunch, which cost the user a round trip. The
+  `hadController` guard stops the very first install reloading a page that is
+  already current — do not remove it. Note this means a fresh context never
+  reloads, so testing the update path needs a load, a reload (to become
+  controlled), and only then the new version.
 - **All paths stay relative.** Pages serves from a subdirectory
   (`/Ai-Assistant/`), so absolute paths break the service worker scope,
   the manifest and the icons.
@@ -124,6 +132,11 @@ Report the merge in the summary; do not ask permission for it.
 - **Reminders are calendar events, not push.** iOS Web Push needs a server
   signing with VAPID keys; this app has no server, and Notification Triggers
   is not in Safari. `buildICS` writes a `VALARM` at `-PT30M`.
+
+The Tasks footer shows the running build, read from the live cache name
+rather than a constant, so "which version am I on" is answerable without
+guessing. On a first install the cache does not exist yet when the boot
+effect runs, which is why it reads again on `serviceWorker.ready`.
 
 ## Verifying
 
