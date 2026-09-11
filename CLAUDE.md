@@ -94,12 +94,25 @@ worker not applying itself, which is fixed under Non-negotiables below.)
   carry-ins oldest first, then importance, then `createdAt`, then `id`. The
   final `id` comparison is what stops the list reshuffling between reloads —
   do not remove it.
-- **A time leads the day.** Anything anchored to the clock sorts above the
-  flexible work, in clock order, whatever its importance — the user chose this
-  over the old "a time never reorders anything" rule when Habits landed. Only
-  a time that applies *today* counts (`isFixedToday`): a task sitting in
+- **A time leads the day once it is close.** Today ranks in three bands
+  (`todayBand`): a time that is due, overdue or within `LEAD_MINUTES` (3h)
+  leads in clock order; the flexible work follows on the old carry-in →
+  importance → `createdAt` → `id` chain; a time still further off waits at the
+  *bottom*, in clock order, marked `.waiting` so it reads quieter. A 21:00
+  medication is not 09:00's business, and keeping it in the eyeline all day is
+  how it stops being read at all. An overdue time never sinks — a missed dose
+  stays in front of you.
+  Only a time that applies *today* counts (`isFixedToday`): a task sitting in
   `today` but dated next Tuesday does not jump the queue. Other buckets follow
-  the same shape via `timeAnchor`, ordered by date then time.
+  `timeAnchor`, ordered by date then time, with no lead-in.
+- **`rankToday`'s `nowMin` is optional, and omitting it means "no yet".** With
+  no clock every timed task leads, which is the two-band behaviour the brief
+  wants — the brief shows the whole shape of the day, so `fixedPoints` and the
+  brief's own `rankToday` call stay clock-free. Only the Tasks list passes the
+  clock. Because of this, **never assert clock-dependent order in a UI test
+  running on the real clock** — whether 07:30 leads depends on when the suite
+  is run. There is a dedicated block at the end of `test/ui.test.mjs` with
+  `page.clock.setFixedTime` in UTC that owns those assertions.
 - **Tone is flat.** No streaks, badges, praise or guilt. Carry-ins are stated
   by age, never as failure. Generated copy carries no exclamation marks — a
   test asserts this.

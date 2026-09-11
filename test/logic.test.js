@@ -1134,5 +1134,81 @@ t("a junk date in the ledger is discarded, not trusted", function () {
   assert.deepStrictEqual(out.gen, { "c:d": WED });
 });
 
+console.log("\na later time waits at the bottom");
+function at(id, time, o) {
+  o = o || {};
+  var t = task(id, o);
+  return QD.applyPatch(t, { dueTime: time }, TODAY, t.createdAt);
+}
+var NINE = 9 * 60, SIX_PM = 18 * 60, EIGHT_PM = 20 * 60;
+t("a 21:00 task sits under the flexible work in the morning", function () {
+  var meds = at("meds", "21:00");
+  var chore = task("chore", { importance: "nice" });
+  assert.deepStrictEqual(ids(QD.rankToday([meds, chore], TODAY, NINE)), ["chore", "meds"]);
+});
+t("and comes up once it is close", function () {
+  var meds = at("meds", "21:00");
+  var chore = task("chore", { importance: "nice" });
+  assert.deepStrictEqual(ids(QD.rankToday([meds, chore], TODAY, SIX_PM)), ["meds", "chore"],
+    "three hours out it is in play");
+  assert.deepStrictEqual(ids(QD.rankToday([meds, chore], TODAY, EIGHT_PM)), ["meds", "chore"]);
+});
+t("the morning's own times still lead the morning", function () {
+  var pills = at("pills", "07:30");
+  var work = at("work", "09:00");
+  var chore = task("chore", { importance: "must" });
+  var meds = at("meds", "21:00");
+  assert.deepStrictEqual(ids(QD.rankToday([meds, chore, work, pills], TODAY, 7 * 60)),
+    ["pills", "work", "chore", "meds"]);
+});
+t("an overdue time never sinks — a missed dose stays in front of you", function () {
+  var pills = at("pills", "07:30");
+  var chore = task("chore", { importance: "nice" });
+  assert.deepStrictEqual(ids(QD.rankToday([chore, pills], TODAY, 22 * 60)), ["pills", "chore"]);
+});
+t("waiting tasks keep clock order among themselves", function () {
+  var nine = at("nine", "21:00");
+  var ten = at("ten", "22:00");
+  var eight = at("eight", "20:00");
+  var chore = task("chore");
+  assert.deepStrictEqual(ids(QD.rankToday([ten, nine, eight, chore], TODAY, NINE)),
+    ["chore", "eight", "nine", "ten"]);
+});
+t("the lead-in is exactly three hours, inclusive", function () {
+  var meds = at("meds", "21:00");
+  var chore = task("chore");
+  assert.deepStrictEqual(ids(QD.rankToday([meds, chore], TODAY, 18 * 60)), ["meds", "chore"],
+    "18:00 is three hours out and counts");
+  assert.deepStrictEqual(ids(QD.rankToday([meds, chore], TODAY, 18 * 60 - 1)), ["chore", "meds"],
+    "a minute earlier it is still waiting");
+});
+t("isWaiting says which band a task is in", function () {
+  var meds = at("meds", "21:00");
+  assert.strictEqual(QD.isWaiting(meds, TODAY, NINE), true);
+  assert.strictEqual(QD.isWaiting(meds, TODAY, EIGHT_PM), false);
+  assert.strictEqual(QD.isWaiting(task("chore"), TODAY, NINE), false, "untimed never waits");
+});
+t("a task dated another day is untimed as far as today goes", function () {
+  var later = QD.applyPatch(task("later"), { dueDate: QD.shiftKey(TODAY, 2), dueTime: "21:00" }, TODAY, 1);
+  assert.strictEqual(QD.isWaiting(later, TODAY, NINE), false);
+});
+t("with no clock given, every time still leads — the brief keeps its shape", function () {
+  var meds = at("meds", "21:00");
+  var chore = task("chore", { importance: "must" });
+  assert.deepStrictEqual(ids(QD.rankToday([chore, meds], TODAY)), ["meds", "chore"]);
+});
+t("ordering stays a total order in every band", function () {
+  var a = at("a", "21:00"), b = at("b", "21:00");
+  b.createdAt = a.createdAt;
+  var chore = task("chore");
+  assert.deepStrictEqual(ids(QD.rankToday([a, b, chore], TODAY, NINE)),
+                         ids(QD.rankToday([b, chore, a], TODAY, NINE)));
+});
+t("the brief still lists the whole day's fixed points in clock order", function () {
+  var pills = at("pills", "07:30");
+  var meds = at("meds", "21:00");
+  assert.deepStrictEqual(ids(QD.fixedPoints([meds, pills], TODAY)), ["pills", "meds"]);
+});
+
 console.log("\n" + pass + " passed, " + fail + " failed\n");
 process.exit(fail ? 1 : 0);

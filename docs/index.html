@@ -191,6 +191,13 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 .chev{color:var(--ink-3);transition:transform .18s ease;flex:none;display:flex}
 .chev.open{transform:rotate(180deg)}
 
+/* A timed task still hours away. It waits at the bottom of today and reads
+   quieter than the work actually in front of you — not disabled, just not
+   shouting. */
+.row.waiting .txt{color:var(--ink-2)}
+.row.waiting .tickbtn{opacity:.72}
+.row.waiting:active .txt,.row.waiting:focus-within .txt{color:var(--ink)}
+
 /* ---- the hot bar: the Tasks footer at rest ---- */
 .hotbar{
   max-width:var(--wrap);margin:0 auto;display:flex;gap:.5rem;align-items:stretch;
