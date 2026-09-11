@@ -191,6 +191,111 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 .chev{color:var(--ink-3);transition:transform .18s ease;flex:none;display:flex}
 .chev.open{transform:rotate(180deg)}
 
+/* ---- the hot bar: the Tasks footer at rest ---- */
+.hotbar{
+  max-width:var(--wrap);margin:0 auto;display:flex;gap:.5rem;align-items:stretch;
+}
+.hot{
+  flex:1 1 0;min-width:0;min-height:var(--tap);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.1875rem;
+  background:var(--ground);border:1px solid var(--line);border-radius:14px;
+  color:var(--ink-2);font-size:.75rem;font-weight:500;
+  padding:.4375rem .25rem;
+  transition:background .18s ease,color .18s ease,transform .18s ease;
+}
+.hot span{
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.hot:hover{color:var(--ink);background:var(--surface-2)}
+.hot:active{transform:scale(.97);background:var(--surface-2)}
+.composer .closebtn{padding-left:.75rem;padding-right:.75rem;color:var(--ink-3)}
+
+/* A task minted by a habit says so, quietly. */
+.habitmark{
+  display:inline-flex;vertical-align:-1px;margin-right:.3125rem;color:var(--ink-3);
+}
+.row.done .habitmark{opacity:.55}
+
+/* ---- habits ---- */
+.habit-lead{padding:.25rem 0 1rem}
+.habit-lead .btn{width:100%;display:flex;align-items:center;justify-content:center;gap:.4375rem}
+.habit-empty{padding:.5rem 0 1rem}
+.habit-empty p{margin:0 0 .75rem}
+.habit-empty .muted{color:var(--ink-3);font-size:.875rem;line-height:1.55}
+.habit-list{display:flex;flex-direction:column;gap:.75rem}
+.habit-bubble{
+  display:flex;align-items:stretch;gap:.5rem;
+  background:var(--surface);border:1px solid var(--line);border-radius:18px;
+  padding:.25rem .5rem .25rem .25rem;
+}
+.habit-bubble.paused{opacity:.62}
+.habit-body{
+  flex:1;min-width:0;text-align:left;padding:.75rem .5rem .75rem .875rem;
+  display:flex;flex-direction:column;gap:.25rem;border-radius:16px;
+}
+.habit-body:active{background:var(--surface-2)}
+.habit-name{font-size:1rem;color:var(--ink);display:flex;align-items:center;gap:.5rem}
+.habit-tag{
+  font-size:.6875rem;color:var(--ink-3);border:1px solid var(--line-2);
+  border-radius:999px;padding:.0625rem .4375rem;
+}
+.habit-when{font-size:.8125rem;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.habit-meta{
+  display:flex;gap:.75rem;flex-wrap:wrap;font-size:.75rem;color:var(--ink-3);
+}
+.habit-meta .imp-must{color:var(--accent);font-weight:600}
+.habit-toggle{
+  flex:none;align-self:center;width:58px;height:36px;
+  display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--line-2);border-radius:999px;
+  font-size:.75rem;font-weight:600;color:var(--ink-3);background:var(--ground);
+}
+.habit-toggle.on{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+.habit-foot{
+  margin:1.25rem 0 0;font-size:.75rem;color:var(--ink-3);line-height:1.6;
+}
+.habit-preview{
+  margin:.75rem 0 0;font-size:.8125rem;color:var(--ink-2);
+  font-family:var(--serif);font-style:italic;
+}
+
+/* one schedule slot inside the habit sheet */
+.slot{
+  border:1px solid var(--line);border-radius:16px;padding:.75rem .8125rem;
+  display:flex;flex-direction:column;gap:.625rem;background:var(--ground);
+}
+.slot-bad{border-color:var(--line-2)}
+.slot-top{display:flex;align-items:center;justify-content:space-between;gap:.5rem;min-height:28px}
+.slot-n{font-size:.6875rem;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.slot-row{display:flex;align-items:center;gap:.5rem;flex-wrap:nowrap}
+.slot-lab{font-size:.8125rem;color:var(--ink-2);flex:none;width:5.25rem}
+.slot-lab .opt{display:block;font-size:.6875rem;color:var(--ink-3)}
+.slot-row .field{flex:1 1 auto;min-width:0}
+.slot-row .field.num{max-width:5.5rem;flex:none}
+.slot-row .linkbtn{flex:none}
+.slot-warn{margin:0;font-size:.75rem;color:var(--accent)}
+/* A week is one row of seven. Left to wrap, Sunday broke onto a line of its
+   own and stretched the full width, which read as a separate control. */
+.daypick{display:grid;grid-template-columns:repeat(7,1fr);gap:.3125rem}
+.monthpick{display:grid;grid-template-columns:repeat(4,1fr);gap:.3125rem}
+.day{
+  min-width:0;min-height:44px;padding:0 .125rem;
+  border:1px solid var(--line-2);border-radius:12px;background:var(--surface);
+  font-size:.8125rem;color:var(--ink-2);
+  transition:background .15s ease,color .15s ease,border-color .15s ease;
+}
+.day.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft);font-weight:600}
+.day:active{transform:scale(.97)}
+.datepick{display:flex;flex-direction:column;gap:.5rem}
+.datechip{
+  display:flex;align-items:center;justify-content:space-between;gap:.5rem;
+  border:1px solid var(--line);border-radius:12px;padding:.375rem .375rem .375rem .75rem;
+  font-size:.8125rem;color:var(--ink-2);background:var(--surface);
+}
+/* Habit slots stack a lot of controls; give the sheet room to breathe. */
+.sheetfield .slot + .slot{margin-top:.625rem}
+.sheetfield .slot + .btn{margin-top:.625rem;width:100%}
+
 /* composer */
 .composer{
   flex:none;background:var(--surface);

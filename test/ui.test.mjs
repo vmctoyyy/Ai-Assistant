@@ -29,6 +29,21 @@ const settled = async (pg) => {
   await pg.evaluate(() => Promise.all(
     document.getAnimations().map(a => a.finished.catch(() => {}))));
 };
+/* The Tasks footer rests as a three-button bar, so anything that wants the
+   quick-add input has to open it first. Idempotent: already open is fine. */
+const openAdd = async (pg) => {
+  if (await pg.locator('.composer input').count() === 0) {
+    await pg.locator('.hot', { hasText: 'Add task' }).tap();
+    await pg.waitForSelector('.composer input', { timeout: 5000 });
+  }
+};
+/* ...and the reverse, for the two bar buttons that are only there at rest. */
+const showBar = async (pg) => {
+  if (await pg.locator('.hotbar').count() === 0) {
+    await pg.locator('.composer .closebtn').tap();
+    await pg.waitForSelector('.hotbar', { timeout: 5000 });
+  }
+};
 /* Expand a collapsed section without collapsing an already-open one — an
    earlier step may have left it either way. */
 const expand = async (pg, label) => {
@@ -78,9 +93,29 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   await pg.locator('button.tile[aria-label="Tasks"]').tap();
   await pg.waitForSelector('.brief', { timeout: 10000 });
 
+  console.log('-- the hot bar --');
+  check('the footer rests as three buttons', await pg.locator('.hotbar .hot').count() === 3);
+  check('and they are the three the bar is for',
+    (await pg.locator('.hotbar .hot').allInnerTexts()).join('|') === 'Add task|Habits|Brain dump');
+  check('no input until one is asked for', await pg.locator('.composer input').count() === 0);
+  const barGeo = await pg.evaluate(() => {
+    const bar = document.querySelector('.hotbar').getBoundingClientRect();
+    return [...document.querySelectorAll('.hotbar .hot')].every(el => {
+      const r = el.getBoundingClientRect();
+      return r.height >= 44 && r.width > 40 &&
+        Math.round(r.right) <= Math.round(bar.right) + 1 && r.left >= bar.left - 1;
+    });
+  });
+  check('every button is a real tap target and fits the bar', barGeo);
+
   console.log('-- composer: chip taps with an EMPTY input --');
-  await pg.locator('.composer input').tap();
+  await pg.locator('.hot', { hasText: 'Add task' }).tap();
   await pg.waitForTimeout(250);
+  check('Add task opens the composer', await pg.locator('.composer input').count() === 1);
+  check('and puts the cursor in it, so the keyboard comes up',
+    await pg.evaluate(() => document.activeElement &&
+      document.activeElement.getAttribute('aria-label') === 'Add a task'));
+  await pg.waitForTimeout(200);
   await pg.locator('.compchips .chip', { hasText: 'Week' }).tap();
   await pg.waitForTimeout(250);
   check('chips survive the tap', await pg.locator('.compchips .chip').count() > 0);
@@ -98,6 +133,7 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
     await pg.locator('.compchips').count() === 0 || await pg.locator('.compchips .chip.on', { hasText: 'Today' }).count() === 1);
 
   console.log('-- composer: the Add button --');
+  await openAdd(pg);
   check('Add is disabled while the input is empty', await pg.locator('.addbtn').isDisabled());
   const legible = await pg.evaluate(() => {
     const b = document.querySelector('.addbtn');
@@ -105,6 +141,7 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
     return { opacity: parseFloat(cs.opacity), colour: cs.color, bg: cs.backgroundColor };
   });
   check('disabled Add stays legible (not a faded solid)', legible.opacity === 1, `opacity ${legible.opacity}`);
+  await openAdd(pg);
   await pg.locator('.composer input').tap();
   await pg.locator('.composer input').fill('Ring the plumber');
   await pg.waitForTimeout(200);
@@ -189,10 +226,12 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   check('delete removes', (await items()).length === 0);
 
   console.log('-- ticking off in a bucket does not make it vanish --');
+  await openAdd(pg);
   await pg.locator('.composer input').tap();
   await pg.waitForTimeout(200);
   await pg.locator('.compchips .chip', { hasText: 'Week' }).tap();
   await pg.waitForTimeout(150);
+  await openAdd(pg);
   await pg.locator('.composer input').fill('Sort the garage');
   await pg.locator('.addbtn').tap();
   await pg.waitForTimeout(400);
@@ -227,6 +266,7 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   await pg.waitForTimeout(300);
 
   console.log('-- swipe to delete --');
+  await openAdd(pg);
   await pg.locator('.composer input').fill('Swipe me away');
   await pg.locator('.addbtn').tap();
   await pg.waitForTimeout(300);
@@ -244,6 +284,7 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   await pg.waitForTimeout(450);
   check('a full swipe deletes the row',
     !(await items()).find(x => x.title === 'Swipe me away'));
+  await openAdd(pg);
   await pg.locator('.composer input').fill('Short drag');
   await pg.locator('.addbtn').tap();
   await pg.waitForTimeout(300);
@@ -265,7 +306,8 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   }
 
   console.log('-- brain dump & backup --');
-  await pg.locator('.composer .btn', { hasText: 'Brain dump' }).tap();
+  await showBar(pg);
+  await pg.locator('.hot', { hasText: 'Brain dump' }).tap();
   await pg.waitForSelector('.sheet');
   await pg.locator('.sheet textarea').fill('One\nTwo\nThree');
   await pg.waitForTimeout(150);
@@ -450,6 +492,205 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   check('recap opens and reports a count',
     /finished in the last seven days/.test(await pg.locator('.recap-lead').innerText()),
     await pg.locator('.recap-lead').innerText());
+
+  console.log('-- habits --');
+  /* The run arrives here from Recap, so get back to the grid first. */
+  if (await pg.locator('.home').count() === 0) {
+    await pg.locator('.backbtn').tap();
+    await pg.waitForSelector('.home', { timeout: 5000 });
+  }
+  /* Native setters again: time, date and number inputs are controlled, so a
+     plainly assigned .value never reaches React and every field reads back
+     as its default — which looks exactly like an app bug. */
+  const setNative = (sel, v) => pg.locator(sel).first().evaluate((el, v) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(el, v);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, v);
+  const habitState = () => pg.evaluate(() => new Promise(r => {
+    const q = indexedDB.open('quietdesk', 1);
+    q.onsuccess = () => { const rq = q.result.transaction('kv','readonly').objectStore('kv').get('habitsv2');
+      rq.onsuccess = () => r(rq.result || { habits: [], gen: {} }); };
+  }));
+  const dayBtn = (d) => pg.locator('.daypick .day').filter({ hasText: new RegExp('^' + d + '$') });
+
+  await pg.locator('button.tile[aria-label="Tasks"]').tap();
+  await pg.waitForTimeout(400);
+  if (await pg.locator('.brief').count()) {
+    await pg.getByRole('button', { name: 'Go to the full list' }).tap();
+    await pg.waitForTimeout(250);
+  }
+  await showBar(pg);
+  await pg.locator('.hot', { hasText: 'Habits' }).tap();
+  await pg.waitForSelector('.habit-lead', { timeout: 5000 });
+  check('the bar opens Habits', await pg.locator('.habit-lead').count() === 1);
+  check('the empty state does not ask for the whole week',
+    /one or two/i.test(await pg.locator('.habit-empty').innerText()));
+
+  await pg.getByRole('button', { name: 'Add habit' }).tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  await settled(pg);
+  check('a new habit starts on weekly', await pg.locator('.daypick').count() === 1);
+  check('and will not save while it has no days',
+    await pg.getByRole('button', { name: 'Save', exact: true }).isDisabled());
+  check('and says why', /at least one day/i.test(await pg.locator('.slot-warn').innerText()));
+
+  await pg.locator('input[aria-label="Habit name"]').fill('Gym');
+  for (const d of ['Mo', 'Tu', 'Th']) { await dayBtn(d).tap(); await pg.waitForTimeout(120); }
+  check('day taps register', await pg.locator('.daypick .day.on').count() === 3,
+    String(await pg.locator('.daypick .day.on').count()));
+  await setNative('input[aria-label="Start time"]', '05:00');
+  await pg.waitForTimeout(150);
+
+  await pg.getByRole('button', { name: '+ Add another time' }).tap();
+  await pg.waitForTimeout(250);
+  check('a habit can carry a second time', await pg.locator('.slot').count() === 2);
+  const slot2 = pg.locator('.slot').nth(1);
+  for (const d of ['Sa', 'Su']) {
+    await slot2.locator('.day').filter({ hasText: new RegExp('^' + d + '$') }).tap();
+    await pg.waitForTimeout(120);
+  }
+  await slot2.locator('input[aria-label="Start time"]').evaluate((el) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(el, '08:00');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await pg.waitForTimeout(200);
+  check('the preview spells out what will be saved',
+    (await pg.locator('.habit-preview').innerText()).includes('Mon/Tue/Thu 05:00, Sat/Sun 08:00'),
+    await pg.locator('.habit-preview').innerText());
+  check('Save is reachable now it is valid',
+    !(await pg.getByRole('button', { name: 'Save', exact: true }).isDisabled()));
+  await pg.getByRole('button', { name: 'Save', exact: true }).tap();
+  await pg.waitForTimeout(450);
+
+  const hs = await habitState();
+  check('the habit is stored with both slots',
+    hs.habits.length === 1 && hs.habits[0].schedule.length === 2,
+    JSON.stringify(hs.habits.map(x => x.name)));
+  check('and reads back as a summary on the list',
+    (await pg.locator('.habit-when').innerText()) === 'Mon/Tue/Thu 05:00, Sat/Sun 08:00',
+    await pg.locator('.habit-when').innerText());
+
+  console.log('-- habits: a daily one reaches today --');
+  await pg.getByRole('button', { name: 'Add habit' }).tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  await settled(pg);
+  await pg.locator('input[aria-label="Habit name"]').fill('Take the pills');
+  for (const d of ['Mo','Tu','We','Th','Fr','Sa','Su']) {
+    await dayBtn(d).tap(); await pg.waitForTimeout(90);
+  }
+  await setNative('input[aria-label="Start time"]', '07:30');
+  await pg.waitForTimeout(150);
+  await pg.getByRole('button', { name: 'Save', exact: true }).tap();
+  await pg.waitForTimeout(500);
+  const minted = (await items()).filter(x => x.title === 'Take the pills');
+  check('a habit that runs today puts a task up straight away', minted.length === 1);
+  check('the instance carries the time', minted[0] && minted[0].dueTime === '07:30',
+    minted[0] && minted[0].dueTime);
+  check('and is stamped with the habit it came from', !!(minted[0] && minted[0].habitId));
+
+  await pg.locator('.backbtn').tap();
+  await pg.waitForTimeout(400);
+  check('back from Habits returns to Tasks, not home', await pg.locator('.hotbar').count() === 1);
+  const pillRow = pg.locator('.row').filter({ hasText: 'Take the pills' });
+  check('the task is on the list', await pillRow.count() === 1);
+  check('and is marked as coming from a habit',
+    await pillRow.locator('.habitmark').count() === 1);
+  check('a hand-made task carries no such mark',
+    await pg.locator('.row').filter({ hasText: 'Sort the garage' }).locator('.habitmark').count() === 0);
+  check('the timed task leads the day',
+    (await pg.locator('.sec').first().locator('.row .txt').first().innerText()).includes('Take the pills'),
+    await pg.locator('.sec').first().locator('.row .txt').first().innerText());
+
+  console.log('-- habits: ticking, pausing, removing --');
+  await pillRow.locator('.tickbtn').tap();
+  await pg.waitForTimeout(350);
+  check('ticking an instance leaves it on screen',
+    await pg.locator('.row.done').filter({ hasText: 'Take the pills' }).count() === 1);
+  check('and does not touch the habit', (await habitState()).habits.length === 2);
+
+  await showBar(pg);
+  await pg.locator('.hot', { hasText: 'Habits' }).tap();
+  await pg.waitForSelector('.habit-lead', { timeout: 5000 });
+  const pillBubble = pg.locator('.habit-bubble').filter({ hasText: 'Take the pills' });
+  check('a habit running today says so',
+    /on today's list/i.test(await pillBubble.innerText()), await pillBubble.innerText());
+  await pillBubble.locator('.habit-toggle').tap();
+  await pg.waitForTimeout(350);
+  check('pausing is one tap', await pillBubble.locator('.habit-toggle').innerText() === 'Off');
+  const paused = (await habitState()).habits.find(x => x.name === 'Take the pills');
+  check('a paused habit keeps its schedule', paused && paused.active === false && paused.schedule.length === 1);
+
+  await pg.locator('.habit-bubble').filter({ hasText: 'Gym' }).locator('.habit-body').tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  await settled(pg);
+  check('tapping a habit opens it for editing',
+    (await pg.locator('input[aria-label="Habit name"]').inputValue()) === 'Gym');
+  check('its slots come back in full', await pg.locator('.slot').count() === 2);
+  await pg.locator('.slot').nth(1).locator('.iconbtn').tap();
+  await pg.waitForTimeout(200);
+  check('a slot can be removed', await pg.locator('.slot').count() === 1);
+  await pg.getByRole('button', { name: 'Save', exact: true }).tap();
+  await pg.waitForTimeout(450);
+  const gym = (await habitState()).habits.find(x => x.name === 'Gym');
+  check('the edit sticks', gym && gym.schedule.length === 1, gym && String(gym.schedule.length));
+
+  await pg.locator('.habit-bubble').filter({ hasText: 'Gym' }).locator('.habit-body').tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  await settled(pg);
+  await pg.getByRole('button', { name: 'Remove' }).tap();
+  await pg.waitForTimeout(200);
+  check('removing arms first', /tap again/i.test(await pg.locator('.btn.danger').innerText()));
+  await pg.locator('.btn.danger.armed').tap();
+  await pg.waitForTimeout(450);
+  check('and then removes just that one',
+    (await habitState()).habits.map(x => x.name).join() === 'Take the pills',
+    (await habitState()).habits.map(x => x.name).join());
+
+  console.log('-- habits: the other recurrences --');
+  await pg.getByRole('button', { name: 'Add habit' }).tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  await settled(pg);
+  await pg.locator('input[aria-label="Habit name"]').fill('Car show');
+  await pg.locator('.sheet .chip', { hasText: 'Dates' }).tap();
+  await pg.waitForTimeout(250);
+  check('picking Dates swaps the day picker for a date list',
+    await pg.locator('.daypick').count() === 0 && await pg.locator('.datepick').count() === 1);
+  await setNative('input[aria-label="Add a date"]', '2026-10-17');
+  await pg.waitForTimeout(200);
+  await pg.getByRole('button', { name: 'Add date' }).tap();
+  await pg.waitForTimeout(250);
+  check('the date is added and spelled out',
+    /Sat 17 Oct/.test(await pg.locator('.datechip').innerText()),
+    await pg.locator('.datechip').innerText());
+  await pg.locator('.sheet .chip', { hasText: 'Monthly' }).tap();
+  await pg.waitForTimeout(250);
+  check('Monthly asks for a day of the month',
+    await pg.locator('input[aria-label="Day of the month"]').count() === 1);
+  await pg.locator('.sheet .chip', { hasText: 'Yearly' }).tap();
+  await pg.waitForTimeout(250);
+  check('Yearly asks for months too', await pg.locator('.monthpick').count() === 1);
+  check('and will not save on months alone',
+    await pg.getByRole('button', { name: 'Save', exact: true }).isDisabled() ||
+    await pg.locator('.slot-warn').count() === 1);
+  await pg.locator('.monthpick .day', { hasText: 'Sep' }).tap();
+  await pg.waitForTimeout(200);
+  await pg.getByRole('button', { name: 'Save', exact: true }).tap();
+  await pg.waitForTimeout(450);
+  check('a yearly habit saves once it has a month and a day',
+    (await habitState()).habits.some(x => x.name === 'Car show'));
+
+  check('no control in the habit sheet is under the tap threshold', await pg.evaluate(() => {
+    return [...document.querySelectorAll('.habit-bubble button, .hotbar .hot')]
+      .every(el => el.getBoundingClientRect().height >= 36);
+  }));
+
+  /* Habits hands back to Tasks; Tasks hands back to the grid. */
+  await pg.locator('.backbtn').tap();
+  await pg.waitForTimeout(400);
+  check('back from Habits lands on Tasks', await pg.locator('.hotbar').count() === 1);
+
   await pg.locator('.backbtn').tap();
   await pg.waitForSelector('.home', { timeout: 5000 });
   check('back always returns home', await pg.locator('.home').count() === 1);

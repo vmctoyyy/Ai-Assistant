@@ -135,7 +135,11 @@
       notTodayOn: null,
       staleAskedOn: null,
       dueDate: validDate(opts.dueDate),
-      dueTime: validTime(opts.dueTime)
+      dueTime: validTime(opts.dueTime),
+      endTime: validTime(opts.endTime),
+      habitId: opts.habitId || null,
+      slotId: opts.slotId || null,
+      genOn: validDate(opts.genOn)
     };
   }
 
@@ -159,7 +163,11 @@
       notTodayOn: t.notTodayOn || null,
       staleAskedOn: t.staleAskedOn || null,
       dueDate: validDate(t.dueDate),
-      dueTime: validTime(t.dueTime)
+      dueTime: validTime(t.dueTime),
+      endTime: validTime(t.endTime),
+      habitId: t.habitId || null,
+      slotId: t.slotId || null,
+      genOn: validDate(t.genOn)
     };
   }
 
@@ -209,6 +217,7 @@
     if (changes.notes !== undefined) next.notes = changes.notes ? String(changes.notes) : "";
     if (changes.dueDate !== undefined) next.dueDate = validDate(changes.dueDate);
     if (changes.dueTime !== undefined) next.dueTime = validTime(changes.dueTime);
+    if (changes.endTime !== undefined) next.endTime = validTime(changes.endTime);
     if (changes.bucket && changes.bucket !== task.bucket) {
       next.notTodayOn = null;
       next.firstTodayOn = changes.bucket === "today" ? today : null;
@@ -225,7 +234,8 @@
     var done = state.items.filter(function (t) { return !!t.completedAt; });
     return {
       version: 2,
-      items: state.items.filter(function (t) { return !t.completedAt; }),
+      items: dropStaleHabitTasks(
+        state.items.filter(function (t) { return !t.completedAt; }), today),
       doneYesterday: done.length,
       lastRollOn: today
     };
@@ -241,9 +251,16 @@
     return r === undefined ? 1 : r;
   }
   /* Deterministic: every comparison ends in a total order, so the list never
-     reshuffles between reloads on the same day. */
+     reshuffles between reloads on the same day.
+     A time now leads the ranking: anything anchored to the clock sits at the
+     top of today in chronological order, and the flexible work — carry-ins
+     oldest first, then importance — follows behind it. */
   function compareToday(today) {
     return function (a, b) {
+      var ta = isFixedToday(a, today) ? a.dueTime : null;
+      var tb = isFixedToday(b, today) ? b.dueTime : null;
+      if (!!ta !== !!tb) return ta ? -1 : 1;
+      if (ta && tb && ta !== tb) return ta < tb ? -1 : 1;
       var ca = isCarryIn(a, today), cb = isCarryIn(b, today);
       if (ca !== cb) return ca ? -1 : 1;
       if (ca && cb && a.firstTodayOn !== b.firstTodayOn) return a.firstTodayOn < b.firstTodayOn ? -1 : 1;
@@ -269,9 +286,20 @@
     });
   }
 
+  /* Sort key for a timed task outside today: the day it is pinned to, then
+     the clock. A time with no date reads as "at 10:30 on whatever day this
+     lands", so it trails the dated ones rather than jumping among them. */
+  function timeAnchor(t) {
+    var time = validTime(t.dueTime);
+    if (!time) return null;
+    return (validDate(t.dueDate) || "9999-99-99") + " " + time;
+  }
   function inBucket(items, bucket) {
     return items.filter(function (t) { return t.bucket === bucket && isOpen(t); })
       .slice().sort(function (a, b) {
+        var wa = timeAnchor(a), wb = timeAnchor(b);
+        if (!!wa !== !!wb) return wa ? -1 : 1;
+        if (wa && wb && wa !== wb) return wa < wb ? -1 : 1;
         var ia = impRank(a), ib = impRank(b);
         if (ia !== ib) return ia - ib;
         if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
@@ -845,6 +873,234 @@
     return { carts: changed ? carts : state.carts, shops: state.shops, lastSweptOn: today };
   }
 
+  /* ---------- habits ----------
+     A habit is a rule, not a task. Each morning the rules that match today
+     mint task instances into `today`; the habit itself is never ticked off.
+     The old 4-toggle habits app stored its dot history under `habits`; that
+     key is retired and still carried untouched, so this model lives under
+     `habitsv2` and cannot overwrite it. */
+  var RECURRENCE = ["weekly", "monthly", "yearly", "dates"];
+
+  function blankHabits() { return { habits: [], gen: {}, lastGenOn: null }; }
+
+  function intsIn(v, lo, hi) {
+    if (!Array.isArray(v)) return [];
+    var seen = {}, out = [];
+    v.forEach(function (n) {
+      var i = typeof n === "number" ? n : parseInt(n, 10);
+      if (!isFinite(i) || i < lo || i > hi || seen[i]) return;
+      seen[i] = true; out.push(i);
+    });
+    return out.sort(function (a, b) { return a - b; });
+  }
+  function datesIn(v) {
+    if (!Array.isArray(v)) return [];
+    var seen = {}, out = [];
+    v.forEach(function (d) {
+      var k = validDate(d);
+      if (!k || seen[k]) return;
+      seen[k] = true; out.push(k);
+    });
+    return out.sort();
+  }
+  function daysInMonth(year, month) { return new Date(year, month, 0).getDate(); }
+
+  /* A slot is only worth keeping if it can ever fire. A weekly slot with no
+     days, or a dates slot with no dates, would sit in the list looking
+     scheduled and never produce anything, so it is dropped rather than kept
+     as a silent no-op. */
+  function normSlot(s) {
+    if (!s || typeof s !== "object") return null;
+    var rec = RECURRENCE.indexOf(s.recurrence) >= 0 ? s.recurrence : "weekly";
+    var start = validTime(s.startTime);
+    if (!start) return null;
+    var end = validTime(s.endTime);
+    if (end && end <= start) end = null;      /* an end before its start is not a duration */
+    var out = {
+      id: s.id || uid(), recurrence: rec, startTime: start, endTime: end,
+      daysOfWeek: [], dayOfMonth: null, monthsOfYear: [], specificDates: []
+    };
+    if (rec === "weekly") {
+      out.daysOfWeek = intsIn(s.daysOfWeek, 0, 6);
+      if (!out.daysOfWeek.length) return null;
+    } else if (rec === "monthly") {
+      out.dayOfMonth = intsIn([s.dayOfMonth], 1, 31)[0] || null;
+      if (!out.dayOfMonth) return null;
+    } else if (rec === "yearly") {
+      out.monthsOfYear = intsIn(s.monthsOfYear, 1, 12);
+      out.dayOfMonth = intsIn([s.dayOfMonth], 1, 31)[0] || null;
+      if (!out.monthsOfYear.length || !out.dayOfMonth) return null;
+    } else {
+      out.specificDates = datesIn(s.specificDates);
+      if (!out.specificDates.length) return null;
+    }
+    return out;
+  }
+
+  function normHabit(hb) {
+    if (!hb || !hb.name || !String(hb.name).trim()) return null;
+    var slots = (Array.isArray(hb.schedule) ? hb.schedule : []).map(normSlot).filter(Boolean);
+    if (!slots.length) return null;
+    var created = typeof hb.createdAt === "number" ? hb.createdAt : Date.now();
+    return {
+      id: hb.id || uid(),
+      name: String(hb.name).trim(),
+      importance: IMPORTANCE.indexOf(hb.importance) >= 0 ? hb.importance : "should",
+      active: hb.active === false ? false : true,
+      schedule: slots,
+      createdAt: created
+    };
+  }
+  function normHabits(v) {
+    var out = blankHabits();
+    if (!v || typeof v !== "object") return out;
+    out.habits = (Array.isArray(v.habits) ? v.habits : []).map(normHabit).filter(Boolean);
+    if (v.gen && typeof v.gen === "object") {
+      Object.keys(v.gen).forEach(function (k) {
+        if (validDate(v.gen[k])) out.gen[k] = v.gen[k];
+      });
+    }
+    out.lastGenOn = typeof v.lastGenOn === "string" ? v.lastGenOn : null;
+    return out;
+  }
+
+  function makeSlot(opts) {
+    opts = opts || {};
+    return normSlot({
+      id: opts.id, recurrence: opts.recurrence || "weekly",
+      daysOfWeek: opts.daysOfWeek, dayOfMonth: opts.dayOfMonth,
+      monthsOfYear: opts.monthsOfYear, specificDates: opts.specificDates,
+      startTime: opts.startTime, endTime: opts.endTime
+    });
+  }
+  function makeHabit(name, opts) {
+    opts = opts || {};
+    return normHabit({
+      id: opts.id, name: name, importance: opts.importance,
+      active: opts.active, schedule: opts.schedule,
+      createdAt: typeof opts.now === "number" ? opts.now : Date.now()
+    });
+  }
+
+  /* Does this slot fall on that day? A monthly slot asking for the 31st
+     lands on the last day of a shorter month rather than skipping it — the
+     intent is "the end of the month", not "nothing in February". */
+  function slotMatches(slot, key) {
+    if (!slot || !validDate(key)) return false;
+    var d = keyToDate(key);
+    if (slot.recurrence === "weekly") return slot.daysOfWeek.indexOf(d.getDay()) >= 0;
+    if (slot.recurrence === "dates") return slot.specificDates.indexOf(key) >= 0;
+    var last = daysInMonth(d.getFullYear(), d.getMonth() + 1);
+    var want = Math.min(slot.dayOfMonth, last);
+    if (d.getDate() !== want) return false;
+    if (slot.recurrence === "monthly") return true;
+    return slot.monthsOfYear.indexOf(d.getMonth() + 1) >= 0;
+  }
+  /* Slots of one habit that fire on a given day, earliest first. A paused
+     habit matches nothing; its schedule and history are left alone. */
+  function habitSlotsOn(habit, key) {
+    if (!habit || !habit.active) return [];
+    return habit.schedule.filter(function (s) { return slotMatches(s, key); })
+      .slice().sort(function (a, b) {
+        if (a.startTime !== b.startTime) return a.startTime < b.startTime ? -1 : 1;
+        return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+      });
+  }
+
+  /* Days are stored 0-6 with Sunday first, which is how JavaScript counts,
+     but a week reads Monday to Sunday — so "Sat/Sun", never "Sun/Sat". */
+  function weekOrder(days) {
+    return days.slice().sort(function (a, b) {
+      return ((a + 6) % 7) - ((b + 6) % 7);
+    });
+  }
+  /* "Mon/Tue/Thu 05:00" — one line per slot, in the app's 24-hour style. */
+  function slotSummary(slot) {
+    if (!slot) return "";
+    var when;
+    if (slot.recurrence === "weekly") {
+      when = slot.daysOfWeek.length === 7 ? "Every day"
+        : weekOrder(slot.daysOfWeek).map(function (n) { return WD3[n]; }).join("/");
+    } else if (slot.recurrence === "monthly") {
+      when = "Day " + slot.dayOfMonth + " monthly";
+    } else if (slot.recurrence === "yearly") {
+      when = slot.monthsOfYear.map(function (m) { return MO3[m - 1]; }).join("/") +
+             " " + slot.dayOfMonth;
+    } else {
+      when = slot.specificDates.length +
+             (slot.specificDates.length === 1 ? " date" : " dates");
+    }
+    var time = slot.startTime + (slot.endTime ? "–" + slot.endTime : "");
+    return when + " " + time;
+  }
+  function habitSummary(habit) {
+    if (!habit) return "";
+    return habit.schedule.slice().sort(function (a, b) {
+      if (a.startTime !== b.startTime) return a.startTime < b.startTime ? -1 : 1;
+      return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+    }).map(slotSummary).join(", ");
+  }
+  /* The next day a habit fires, looked ahead a year at most. Used for the
+     quiet line under a habit that has nothing on today. */
+  function nextHabitDay(habit, from) {
+    if (!habit || !habit.active || !validDate(from)) return null;
+    for (var i = 0; i <= 366; i++) {
+      var key = shiftKey(from, i);
+      if (habitSlotsOn(habit, key).length) return key;
+    }
+    return null;
+  }
+
+  function genKey(habitId, slotId) { return habitId + ":" + slotId; }
+
+  /* Mint today's instances. The ledger in `gen` records that a slot has
+     already been minted for a day, so deleting a generated task does not
+     bring it straight back on the next open — the deletion sticks until the
+     habit next comes round. Batch creation staggers createdAt for the same
+     reason the brain dump does: same-millisecond tasks fall through to the
+     random id tie-break and lose their order. */
+  function generateHabitTasks(state, items, today, now) {
+    var hs = normHabits(state);
+    if (hs.lastGenOn === today) return { habits: hs, items: items, added: [] };
+    var base = typeof now === "number" ? now : Date.now();
+    var gen = {}, added = [], step = 0;
+    Object.keys(hs.gen).forEach(function (k) { gen[k] = hs.gen[k]; });
+    hs.habits.forEach(function (habit) {
+      habitSlotsOn(habit, today).forEach(function (slot) {
+        var key = genKey(habit.id, slot.id);
+        if (gen[key] === today) return;
+        gen[key] = today;
+        var t = makeTask(habit.name, {
+          bucket: "today", importance: habit.importance,
+          dueDate: today, dueTime: slot.startTime,
+          now: base + step, today: today
+        });
+        step += 1;
+        t.habitId = habit.id;
+        t.slotId = slot.id;
+        t.genOn = today;
+        t.endTime = slot.endTime;
+        added.push(t);
+      });
+    });
+    return {
+      habits: { habits: hs.habits, gen: gen, lastGenOn: today },
+      items: added.length ? items.concat(added) : items,
+      added: added
+    };
+  }
+
+  /* Yesterday's gym is not today's gym. An unfinished instance is dropped at
+     the rollover rather than carried in, because a missed routine that piles
+     up week on week turns the list into a scoreboard — which this app does
+     not do. Today's instance is minted fresh if the habit runs today. */
+  function isHabitTask(t) { return !!(t && t.habitId && t.genOn); }
+  function dropStaleHabitTasks(items, today) {
+    return items.filter(function (t) {
+      return !(isHabitTask(t) && t.genOn < today && !t.completedAt);
+    });
+  }
+
   /* ---------- calendar export ----------
      A static site has no push server, so a reminder is a real calendar event
      with a 30-minute alarm. Floating local time: 12:30 means 12:30 wherever
@@ -920,6 +1176,13 @@
     cartsNewestFirst: cartsNewestFirst,
     shopsByName: shopsByName, cartPreview: cartPreview, cartOpenCount: cartOpenCount,
     sweepCarts: sweepCarts,
+    RECURRENCE: RECURRENCE, blankHabits: blankHabits, normHabits: normHabits,
+    normHabit: normHabit, normSlot: normSlot, makeHabit: makeHabit, makeSlot: makeSlot,
+    slotMatches: slotMatches, habitSlotsOn: habitSlotsOn,
+    slotSummary: slotSummary, habitSummary: habitSummary, weekOrder: weekOrder, nextHabitDay: nextHabitDay,
+    genKey: genKey, generateHabitTasks: generateHabitTasks,
+    isHabitTask: isHabitTask, dropStaleHabitTasks: dropStaleHabitTasks,
+    timeAnchor: timeAnchor,
     bucketForDate: bucketForDate,
     greetingLine: greetingLine, startHere: startHere, allDoneLine: allDoneLine
   };
