@@ -278,7 +278,14 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
 
   await pg.locator('.sheet .togglebtn').filter({ hasText: 'Date' }).tap();
   await pg.waitForTimeout(250);
-  await setNativeOn(pg, 'input[aria-label="Date"]', '2026-09-14');
+  /* Today's own date: a date now decides the bucket, so a hardcoded one would
+     file the task somewhere that drifts as real days pass. Bucketing itself is
+     asserted against a frozen clock further down. */
+  const todayKey = await pg.evaluate(() => {
+    const d = new Date(), p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  });
+  await setNativeOn(pg, 'input[aria-label="Date"]', todayKey);
   await pg.locator('.sheet .togglebtn').filter({ hasText: 'Time' }).tap();
   await pg.waitForTimeout(250);
   await setNativeOn(pg, 'input[aria-label="Time"]', '14:30');
@@ -286,12 +293,18 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   await pg.waitForTimeout(200);
   check('no reminder offered before the task exists',
     await pg.locator('.sheet .remindrow').count() === 0);
+  check('the manual bucket picker gives way to the date',
+    await pg.locator('.sheetfield', { hasText: 'WHEN' }).locator('.chips').count() === 0 &&
+    await pg.locator('.setbydate').count() === 1);
+  check('and names the bucket the date chose',
+    (await pg.locator('.sbd-name').innerText()) === 'Today',
+    await pg.locator('.sbd-name').innerText());
   await pg.locator('.sheet').getByRole('button', { name: 'Add task', exact: true }).tap();
   await pg.waitForTimeout(500);
 
   const made = (await items()).find(x => x.title === 'Pick up the prescription');
   check('the task is created with everything set in one go', !!made);
-  check('  date', made && made.dueDate === '2026-09-14', made && made.dueDate);
+  check('  date', made && made.dueDate === todayKey, made && made.dueDate);
   check('  time', made && made.dueTime === '14:30', made && made.dueTime);
   check('  note', made && made.notes === 'Chemist on the corner', made && made.notes);
   check('  importance', made && made.importance === 'must', made && made.importance);
@@ -913,6 +926,139 @@ console.log('\n##### a later time waits its turn #####');
     await pg.waitForTimeout(350);
     return await pg.locator('.row.done').count() === 1;
   })());
+  console.log('  errors:', errs.length ? errs : 'none');
+  await ctx.close();
+}
+
+
+/* ---- a date decides the bucket ----
+   Frozen to Wed 2026-09-09 in UTC: its calendar week runs Mon 7 to Sun 13 and
+   its month ends on the 30th, so every boundary below is a fixed fact rather
+   than a function of when the suite happens to run. */
+console.log('\n##### a date decides the bucket #####');
+{
+  const ctx = await b.newContext({ ...devices['iPhone 13'], hasTouch: true, timezoneId: 'UTC' });
+  const pg = await ctx.newPage();
+  const errs = [];
+  pg.on('pageerror', e => errs.push('PAGEERROR ' + e));
+  pg.on('console', m => { if (m.type() === 'error') errs.push(m.text().slice(0, 160)); });
+  await pg.clock.setFixedTime(new Date('2026-09-09T09:00:00Z'));
+  await pg.goto(`${BASE}/index.html`);
+  await pg.waitForSelector('.home', { timeout: 10000 });
+  await settled(pg);
+  await pg.locator('button.tile[aria-label="Tasks"]').tap();
+  await pg.waitForTimeout(500);
+  if (await pg.locator('.brief').count()) {
+    await pg.getByRole('button', { name: 'Go to the full list' }).tap();
+    await pg.waitForTimeout(300);
+  }
+  const dbItems = () => pg.evaluate(() => new Promise(r => {
+    const q = indexedDB.open('quietdesk', 1);
+    q.onsuccess = () => { const rq = q.result.transaction('kv','readonly').objectStore('kv').get('tasks');
+      rq.onsuccess = () => r(rq.result ? rq.result.items : []); };
+  }));
+  /* Build one task, filed by hand in Today, then date it for Sunday. */
+  await showBar(pg);
+  await openAdd(pg);
+  await pg.locator('.composer input').fill('Ring the vet');
+  await pg.locator('.addbtn').tap();
+  await pg.waitForTimeout(400);
+  check('it starts in Today, as filed',
+    await pg.locator('.sec').first().locator('.row').filter({ hasText: 'Ring the vet' }).count() === 1);
+
+  await pg.locator('button[aria-label="Options for Ring the vet"]').tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  await settled(pg);
+  await pg.locator('.sheet .togglebtn').filter({ hasText: 'Date' }).tap();
+  await pg.waitForTimeout(250);
+  await setNativeOn(pg, 'input[aria-label="Date"]', '2026-09-13');
+  await pg.waitForTimeout(250);
+  check('the sheet names the bucket the date chose',
+    (await pg.locator('.sbd-name').innerText()) === 'This week',
+    await pg.locator('.sbd-name').innerText());
+  check('and the manual chips are gone',
+    await pg.locator('.sheetfield', { hasText: 'WHEN' }).locator('.chips').count() === 0);
+  await pg.locator('.sheet').getByRole('button', { name: 'Save', exact: true }).tap();
+  await pg.waitForTimeout(450);
+  check('a task dated Sunday leaves Today',
+    await pg.locator('.sec').first().locator('.row').filter({ hasText: 'Ring the vet' }).count() === 0);
+  await expand(pg, 'This week');
+  const weekSecB = pg.locator('.sec').filter({ has: pg.locator('.disc', { hasText: 'This week' }) });
+  check('and turns up under This week',
+    await weekSecB.locator('.row').filter({ hasText: 'Ring the vet' }).count() === 1);
+  check('while the stored bucket is untouched',
+    (await dbItems()).find(x => x.title === 'Ring the vet').bucket === 'today',
+    (await dbItems()).find(x => x.title === 'Ring the vet').bucket);
+
+  /* Monday is the next calendar week, so it belongs to This month. */
+  await weekSecB.locator('button[aria-label="Options for Ring the vet"]').tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  await settled(pg);
+  await setNativeOn(pg, 'input[aria-label="Date"]', '2026-09-14');
+  await pg.waitForTimeout(250);
+  check('Monday reads as This month, not This week',
+    (await pg.locator('.sbd-name').innerText()) === 'This month',
+    await pg.locator('.sbd-name').innerText());
+  await setNativeOn(pg, 'input[aria-label="Date"]', '2026-10-01');
+  await pg.waitForTimeout(250);
+  check('and October is Future', (await pg.locator('.sbd-name').innerText()) === 'Future',
+    await pg.locator('.sbd-name').innerText());
+
+  /* A date already gone keeps the task on Today, marked. */
+  await setNativeOn(pg, 'input[aria-label="Date"]', '2026-09-05');
+  await pg.waitForTimeout(250);
+  check('a past date still reads as Today',
+    (await pg.locator('.sbd-name').innerText()) === 'Today',
+    await pg.locator('.sbd-name').innerText());
+  check('and the sheet says what that means',
+    /marked as late/i.test(await pg.locator('.sheetfield', { hasText: 'WHEN' }).innerText()));
+  await pg.locator('.sheet').getByRole('button', { name: 'Save', exact: true }).tap();
+  await pg.waitForTimeout(450);
+  const lateRow = pg.locator('.sec').first().locator('.row').filter({ hasText: 'Ring the vet' });
+  check('an overdue task comes back to Today', await lateRow.count() === 1);
+  check('marked, and by age rather than as a failure',
+    (await lateRow.locator('.latetag').innerText()) === 'due Saturday',
+    await lateRow.locator('.latetag').innerText());
+  check('the mark is warm, not a red alarm', await pg.evaluate(() => {
+    const c = getComputedStyle(document.querySelector('.latetag')).color;
+    const m = c.match(/\d+/g).map(Number);
+    return m[0] > m[2] && m[0] - m[2] < 90;   /* warm, but nowhere near red */
+  }));
+  check('it is not double-labelled as a carry-in too',
+    await lateRow.locator('.carrytag').count() === 0);
+  check('nor does the due line repeat the day the tag just gave',
+    await lateRow.locator('.duetag').count() === 0,
+    await lateRow.locator('.duetag').innerText().catch(() => ''));
+  check('and it leads the day', await pg.evaluate(() =>
+    document.querySelector('.sec .row').textContent.includes('Ring the vet')));
+  check('ticking it off still works', await (async () => {
+    await lateRow.locator('.tickbtn').tap();
+    await pg.waitForTimeout(350);
+    return await pg.locator('.row.done').filter({ hasText: 'Ring the vet' }).count() === 1;
+  })());
+  check('and a done one drops the late mark',
+    await pg.locator('.row.done').filter({ hasText: 'Ring the vet' }).locator('.latetag').isVisible()
+      .then(v => !v).catch(() => true));
+
+  /* Taking the date off hands it back to the chips, where the date left it. */
+  await pg.locator('.row.done').filter({ hasText: 'Ring the vet' }).locator('.tickbtn').tap();
+  await pg.waitForTimeout(300);
+  await pg.locator('button[aria-label="Options for Ring the vet"]').tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  await settled(pg);
+  await pg.locator('.sheet .togglebtn').filter({ hasText: 'Date' }).tap();
+  await pg.waitForTimeout(300);
+  check('the chips come back when the date goes',
+    await pg.locator('.sheetfield', { hasText: 'WHEN' }).locator('.chips').count() === 1 &&
+    await pg.locator('.setbydate').count() === 0);
+  check('pre-set to where the date had it',
+    (await pg.locator('.sheetfield', { hasText: 'WHEN' }).locator('.chip.on').innerText()) === 'Today',
+    await pg.locator('.sheetfield', { hasText: 'WHEN' }).locator('.chip.on').innerText());
+  await pg.locator('.sheet').getByRole('button', { name: 'Save', exact: true }).tap();
+  await pg.waitForTimeout(450);
+  check('and it does not vanish', await pg.locator('.row').filter({ hasText: 'Ring the vet' }).count() === 1);
+  check('the date really is gone',
+    (await dbItems()).find(x => x.title === 'Ring the vet').dueDate === null);
   console.log('  errors:', errs.length ? errs : 'none');
   await ctx.close();
 }

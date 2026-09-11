@@ -375,11 +375,12 @@ t("a time beats a carry-in, and the untimed rest keeps the old chain", function 
   assert.deepStrictEqual(ids(QD.rankToday([must, old1, timed], TODAY)),
     ["timed", "carry", "must"]);
 });
-t("a time on another day does not jump today's queue", function () {
+t("a task dated another day is not in today at all", function () {
   var plain = task("plain", { importance: "must" });
   var later = QD.applyPatch(task("later", { importance: "nice" }),
     { dueDate: QD.shiftKey(TODAY, 3), dueTime: "06:00" }, TODAY, 1);
-  assert.deepStrictEqual(ids(QD.rankToday([later, plain], TODAY)), ["plain", "later"]);
+  assert.deepStrictEqual(ids(QD.rankToday([later, plain], TODAY)), ["plain"]);
+  assert.deepStrictEqual(ids(QD.inBucket([later, plain], "this_week", TODAY)), ["later"]);
 });
 t("ranking stays a total order once times are in play", function () {
   var a = QD.applyPatch(task("a"), { dueTime: "08:00" }, TODAY, 1);
@@ -391,12 +392,12 @@ t("ranking stays a total order once times are in play", function () {
 });
 t("other buckets put their timed tasks first too", function () {
   var plain = task("plain", { bucket: "this_week", importance: "must" });
-  var wed = QD.applyPatch(task("wed", { bucket: "this_week", importance: "nice" }),
+  var fri = QD.applyPatch(task("fri", { importance: "nice" }),
     { dueDate: QD.shiftKey(TODAY, 2), dueTime: "08:00" }, TODAY, 1);
-  var tue = QD.applyPatch(task("tue", { bucket: "this_week", importance: "nice" }),
+  var thu = QD.applyPatch(task("thu", { importance: "nice" }),
     { dueDate: QD.shiftKey(TODAY, 1), dueTime: "08:00" }, TODAY, 1);
-  assert.deepStrictEqual(ids(QD.inBucket([plain, wed, tue], "this_week")),
-    ["tue", "wed", "plain"]);
+  assert.deepStrictEqual(ids(QD.inBucket([plain, fri, thu], "this_week", TODAY)),
+    ["thu", "fri", "plain"]);
 });
 
 console.log("\naddedLabel");
@@ -452,7 +453,9 @@ t("with no fixed point the plan line is the old one-sentence start-here", functi
 t("a task timed for a future date is not today's fixed point", function () {
   var items = [task("c", { title: "Coffee", dueDate: "2026-09-12", dueTime: "12:30" })];
   assert.deepStrictEqual(QD.fixedPoints(items, TODAY), []);
-  assert.deepStrictEqual(ids(QD.flexibleToday(items, TODAY)), ["c"]);
+  assert.deepStrictEqual(QD.flexibleToday(items, TODAY), [],
+    "nor is it loose in today — its date puts it later in the week");
+  assert.deepStrictEqual(ids(QD.inBucket(items, "this_week", TODAY)), ["c"]);
 });
 t("plan-line copy stays calm: no exclamations, at most two sentences", function () {
   [coffeeDay(), [task("c", { title: "Coffee", dueTime: "12:30" })],
@@ -466,37 +469,123 @@ t("plan-line copy stays calm: no exclamations, at most two sentences", function 
   });
 });
 
-console.log("\nanchored suggestions");
-t("a task dated today but filed elsewhere is surfaced as an anchor", function () {
-  var items = [task("w", { title: "Coffee", bucket: "this_week", dueDate: TODAY, dueTime: "12:30" })];
-  assert.deepStrictEqual(ids(QD.pickAnchored(items, TODAY)), ["w"]);
+console.log("\ndate-driven bucketing");
+/* TODAY is Wed 2026-09-09: its calendar week runs Mon 7 - Sun 13, its month
+   ends Wed 30 Sep. */
+t("a date decides the bucket, whatever the manual one says", function () {
+  var t1 = task("w", { bucket: "this_week", dueDate: TODAY });
+  assert.strictEqual(QD.effectiveBucket(t1, TODAY), "today");
+  assert.deepStrictEqual(ids(QD.rankToday([t1], TODAY)), ["w"]);
+  assert.deepStrictEqual(QD.inBucket([t1], "this_week", TODAY), [],
+    "and it is no longer where the manual bucket filed it");
 });
-t("anchors show even when today is already full", function () {
-  var items = coffeeDay([task("w", { bucket: "this_week", dueDate: TODAY })]);
-  assert.deepStrictEqual(QD.pickSuggestions(items, TODAY), [], "ordinary suggestions stay quiet");
-  assert.deepStrictEqual(ids(QD.pickAnchored(items, TODAY)), ["w"]);
+t("a task filed in today but dated later leaves today", function () {
+  var t1 = task("x", { bucket: "today", dueDate: "2026-09-12" });
+  assert.strictEqual(QD.effectiveBucket(t1, TODAY), "this_week");
+  assert.deepStrictEqual(QD.rankToday([t1], TODAY), []);
 });
-t("an anchor is never counted twice as an ordinary suggestion", function () {
-  var items = [task("w", { bucket: "this_week", dueDate: TODAY })];
-  assert.deepStrictEqual(QD.pickSuggestions(items, TODAY), []);
-  assert.deepStrictEqual(ids(QD.pickAnchored(items, TODAY)), ["w"]);
+t("the stored bucket is left alone — only the reading changes", function () {
+  var t1 = task("w", { bucket: "this_week", dueDate: TODAY });
+  QD.effectiveBucket(t1, TODAY);
+  QD.rankToday([t1], TODAY);
+  assert.strictEqual(t1.bucket, "this_week", "nothing was written");
 });
-t('"Not today" silences an anchor for that day only', function () {
-  var items = [task("w", { bucket: "this_week", dueDate: TODAY, notTodayOn: TODAY })];
-  assert.deepStrictEqual(QD.pickAnchored(items, TODAY), []);
+t("an undated task still follows its manual bucket", function () {
+  ["today", "this_week", "this_month", "future"].forEach(function (b) {
+    assert.strictEqual(QD.effectiveBucket(task("t", { bucket: b }), TODAY), b);
+  });
 });
-t("anchors order by time, untimed last", function () {
-  var items = [
-    task("b", { bucket: "this_week", dueDate: TODAY }),
-    task("a", { bucket: "this_month", dueDate: TODAY, dueTime: "09:00" })
-  ];
-  assert.deepStrictEqual(ids(QD.pickAnchored(items, TODAY)), ["a", "b"]);
+t("the week is Monday to Sunday", function () {
+  assert.strictEqual(QD.startOfWeek(TODAY), "2026-09-07", "Monday");
+  assert.strictEqual(QD.nextWeekStart(TODAY), "2026-09-14");
+  assert.strictEqual(QD.bucketForDate("2026-09-13", TODAY), "this_week", "Sunday closes it");
+  assert.strictEqual(QD.bucketForDate("2026-09-14", TODAY), "this_month", "Monday opens the next");
+  assert.strictEqual(QD.startOfWeek("2026-09-13"), "2026-09-07", "a Sunday belongs to its Monday");
 });
-t("nothing is moved automatically — the bucket is untouched", function () {
-  var items = [task("w", { bucket: "this_week", dueDate: TODAY })];
-  QD.pickAnchored(items, TODAY);
-  assert.strictEqual(items[0].bucket, "this_week");
-  assert.deepStrictEqual(QD.rankToday(items, TODAY), []);
+t("the month boundary is the calendar month", function () {
+  assert.strictEqual(QD.monthEnd(TODAY), "2026-09-30");
+  assert.strictEqual(QD.bucketForDate("2026-09-30", TODAY), "this_month");
+  assert.strictEqual(QD.bucketForDate("2026-10-01", TODAY), "future");
+});
+t("a week running past the end of the month keeps its own days", function () {
+  var MON = "2026-09-28";          /* Mon 28 Sep; the week ends Sun 4 Oct */
+  assert.strictEqual(QD.bucketForDate("2026-10-02", MON), "this_week",
+    "October the 2nd is still this week");
+  assert.strictEqual(QD.bucketForDate("2026-10-06", MON), "future",
+    "past the week and past the month");
+});
+t("a task drifts inward on its own as the days pass", function () {
+  var d = "2026-09-30";
+  assert.strictEqual(QD.bucketForDate(d, "2026-08-20"), "future");
+  assert.strictEqual(QD.bucketForDate(d, "2026-09-09"), "this_month");
+  assert.strictEqual(QD.bucketForDate(d, "2026-09-28"), "this_week");
+  assert.strictEqual(QD.bucketForDate(d, "2026-09-30"), "today");
+  assert.strictEqual(QD.bucketForDate(d, "2026-10-01"), "today", "and stays, as overdue");
+});
+
+console.log("\noverdue");
+t("a past date lands in today, marked, never hidden", function () {
+  var late = task("late", { bucket: "future", dueDate: "2026-09-05" });
+  assert.strictEqual(QD.effectiveBucket(late, TODAY), "today");
+  assert.strictEqual(QD.isOverdue(late, TODAY), true);
+  assert.deepStrictEqual(ids(QD.rankToday([late], TODAY)), ["late"]);
+});
+t("a completed one is not overdue", function () {
+  var done = task("done", { dueDate: "2026-09-05", completedAt: ms(TODAY, 10) });
+  assert.strictEqual(QD.isOverdue(done, TODAY), false);
+});
+t("it is stated by age, not as a failure", function () {
+  assert.strictEqual(QD.overdueLabel(task("a", { dueDate: "2026-09-08" }), TODAY), "due yesterday");
+  assert.strictEqual(QD.overdueLabel(task("a", { dueDate: "2026-09-06" }), TODAY), "due Sunday");
+  assert.strictEqual(QD.overdueLabel(task("a", { dueDate: TODAY }), TODAY), "", "not late yet");
+});
+t("late work leads the day, oldest first, ahead of everything", function () {
+  var older = task("older", { dueDate: "2026-09-05", importance: "nice" });
+  var newer = task("newer", { dueDate: "2026-09-08", importance: "nice" });
+  var must = task("must", { importance: "must" });
+  var soon = QD.applyPatch(task("soon"), { dueTime: "09:30" }, TODAY, 1);
+  assert.deepStrictEqual(ids(QD.rankToday([must, soon, newer, older], TODAY, 9 * 60)),
+    ["older", "newer", "soon", "must"]);
+});
+t("a late task never sinks to the bottom, whatever its old time said", function () {
+  var late = QD.normTask({ id: "late", title: "late", bucket: "today",
+    dueDate: "2026-09-08", dueTime: "21:00", createdAt: ms(TODAY, 9) }, TODAY);
+  var chore = task("chore");
+  assert.deepStrictEqual(ids(QD.rankToday([late, chore], TODAY, 9 * 60)), ["late", "chore"]);
+  assert.strictEqual(QD.isWaiting(late, TODAY, 9 * 60), false);
+});
+t("a dated task is never also called a carry-in", function () {
+  var late = task("late", { dueDate: "2026-09-05", firstTodayOn: "2026-09-05" });
+  assert.strictEqual(QD.isOverdue(late, TODAY), true);
+  assert.strictEqual(QD.isCarryIn(late, TODAY), false, "one fact, one label");
+  var plain = task("plain", { firstTodayOn: "2026-09-05" });
+  assert.strictEqual(QD.isCarryIn(plain, TODAY), true, "undated ones still carry in");
+});
+
+console.log("\ntaking a date off");
+t("the task falls back to wherever the date had it", function () {
+  var t1 = task("t", { bucket: "today", dueDate: "2026-09-12" });
+  assert.strictEqual(QD.effectiveBucket(t1, TODAY), "this_week");
+  var off = QD.applyPatch(t1, { dueDate: null }, TODAY, 1);
+  assert.strictEqual(off.dueDate, null);
+  assert.strictEqual(off.bucket, "this_week", "it does not jump, and does not vanish");
+  assert.strictEqual(QD.effectiveBucket(off, TODAY), "this_week");
+});
+t("an overdue one falls back to today rather than disappearing", function () {
+  var late = task("late", { bucket: "future", dueDate: "2026-09-05" });
+  var off = QD.applyPatch(late, { dueDate: null }, TODAY, 1);
+  assert.strictEqual(off.bucket, "today");
+  assert.strictEqual(off.firstTodayOn, TODAY, "and it is new to today, not a carry-in");
+});
+t("and can then be re-picked by hand", function () {
+  var off = QD.applyPatch(task("t", { dueDate: "2026-09-12" }), { dueDate: null }, TODAY, 1);
+  var moved = QD.applyPatch(off, { bucket: "future" }, TODAY, 2);
+  assert.strictEqual(QD.effectiveBucket(moved, TODAY), "future");
+});
+t("suggestions only ever offer undated work", function () {
+  var dated = task("d", { bucket: "this_week", dueDate: "2026-09-12", importance: "must" });
+  var plain = task("p", { bucket: "this_week", importance: "must" });
+  assert.deepStrictEqual(ids(QD.pickSuggestions([dated, plain], TODAY)), ["p"]);
 });
 
 console.log("\ncalendar reminder");
@@ -531,7 +620,7 @@ t("reads title, time, date and notes out of one sentence", function () {
   assert.strictEqual(r.dueTime, "10:00");
   assert.strictEqual(r.dueDate, "2026-09-15");
   assert.strictEqual(r.notes, "Ahuriri, 18 Ossian Street");
-  assert.strictEqual(r.bucket, "this_week");
+  assert.strictEqual(r.bucket, "this_month", "Tue 15 Sep is past this calendar week");
   assert.strictEqual(r.importance, "should");
 });
 
@@ -599,7 +688,8 @@ t("only explicit markers set importance", function () {
 t("bucket follows the date unless said otherwise", function () {
   assert.strictEqual(P("Buy milk").bucket, "today");
   assert.strictEqual(P("Coffee tomorrow").bucket, "this_week");
-  assert.strictEqual(P("Dentist 5 Oct").bucket, "this_month");
+  assert.strictEqual(P("Dentist 5 Oct").bucket, "future", "past the end of September");
+  assert.strictEqual(P("Dentist 28 Sep").bucket, "this_month");
   assert.strictEqual(P("Renew passport 1 Mar").bucket, "future");
   assert.strictEqual(P("Sort the garage this week").bucket, "this_week");
   assert.strictEqual(P("Paint the fence someday").bucket, "future");
@@ -671,7 +761,7 @@ t("parsed output is a valid task once made", function () {
   assert.strictEqual(task.dueDate, "2026-09-15");
   assert.strictEqual(task.dueTime, "10:00");
   assert.strictEqual(task.notes, "Ahuriri, 18 Ossian Street");
-  assert.strictEqual(task.bucket, "this_week");
+  assert.strictEqual(task.bucket, "this_month", "Tue 15 Sep is past this calendar week");
   assert.strictEqual(QD.dueLabel(task.dueDate, task.dueTime, TODAY), "10:00 · Tuesday");
 });
 

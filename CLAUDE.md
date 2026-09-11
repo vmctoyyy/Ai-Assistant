@@ -87,16 +87,48 @@ worker not applying itself, which is fixed under Non-negotiables below.)
 
 ## Product rules that are easy to break
 
-- **Buckets never change on their own.** Anything that would move a task
-  between `today` / `this_week` / `this_month` / `future` must be an explicit
-  user action. Date-anchored tasks are offered as suggestions, never moved.
-- **Ranking is total and deterministic:** a time first (chronological), then
-  carry-ins oldest first, then importance, then `createdAt`, then `id`. The
-  final `id` comparison is what stops the list reshuffling between reloads —
-  do not remove it.
-- **A time leads the day once it is close.** Today ranks in three bands
-  (`todayBand`): a time that is due, overdue or within `LEAD_MINUTES` (3h)
-  leads in clock order; the flexible work follows on the old carry-in →
+- **A date decides the bucket; nothing else does.** `effectiveBucket` reads
+  the date when there is one and the manual `bucket` field only when there is
+  not, so a stale manual bucket can never contradict a date. This *reverses*
+  the original "buckets never change on their own" rule, deliberately and on
+  request — `pickAnchored`, which used to offer dated tasks filed elsewhere
+  for the user to accept, is gone because a dated task is now already where
+  its date puts it. Undated tasks are unchanged: the user picks, nothing moves.
+- **Nothing is written when a bucket is computed.** The stored `bucket` is
+  left exactly as it was and the reading is derived at render time, which is
+  what lets a task drift Future → This month → This week → Today on its own
+  with no migration and no nightly job. Do not "fix" this by persisting the
+  computed value. Every filter goes through `effectiveBucket(t, today)`, so
+  `inBucket` now takes `today` as a third argument.
+- **The week is Monday to Sunday, the month is the calendar month.** Nothing
+  else in the app had a week boundary — `sinceLabel` and the recap both use
+  rolling seven-day windows — so there was no Sunday-first convention to
+  contradict. The cascade order matters: a week running past the end of the
+  month keeps its own days, so a Thursday that falls on the 2nd of next month
+  is still "this week". `bucketForDate` used to use rolling ≤7/≤31 windows;
+  it does not any more, which moved some brain-dump parse expectations.
+- **A date already gone keeps the task in Today, marked.** `isOverdue` is
+  date-based and only applies to open tasks. Late work leads the day, oldest
+  first, ahead of everything including timed work, and never sinks into the
+  waiting band. The mark is `overdueLabel` — "due yesterday", "due Saturday" —
+  stated by age exactly as a carry-in is, in the warm accent. **There is no
+  red in this palette**; the spec's "small red label" was answered in the
+  accent on purpose, and a test asserts the colour is warm. When a task is
+  late the row drops its ordinary due line, because the tag already names the
+  day and printing both says it twice.
+- **A dated task is never also a carry-in.** `isCarryIn` is undated-only now;
+  overdue expresses the same fact better for dated work, and labelling both
+  would say it twice.
+- **Clearing a date hands the task back to its manual bucket**, set to
+  wherever the date had it (`applyPatch`), so it neither jumps nor vanishes
+  from the list being looked at. The sheet does the same to its chips.
+- **Ranking is total and deterministic:** late work first, then a time
+  (chronological), then carry-ins oldest first, then importance, then
+  `createdAt`, then `id`. The final `id` comparison is what stops the list
+  reshuffling between reloads — do not remove it.
+- **A time leads the day once it is close.** Today ranks in four bands
+  (`todayBand`): 0 already late, 1 a time within `LEAD_MINUTES` (3h) or past,
+  2 the flexible work, 3 a time still further off. Band 1 leads in clock order; the flexible work follows on the old carry-in →
   importance → `createdAt` → `id` chain; a time still further off waits at the
   *bottom*, in clock order, marked `.waiting` so it reads quieter. A 21:00
   medication is not 09:00's business, and keeping it in the eyeline all day is
@@ -111,8 +143,11 @@ worker not applying itself, which is fixed under Non-negotiables below.)
   brief's own `rankToday` call stay clock-free. Only the Tasks list passes the
   clock. Because of this, **never assert clock-dependent order in a UI test
   running on the real clock** — whether 07:30 leads depends on when the suite
-  is run. There is a dedicated block at the end of `test/ui.test.mjs` with
-  `page.clock.setFixedTime` in UTC that owns those assertions.
+  is run. There are two dedicated blocks at the end of `test/ui.test.mjs` using
+  `page.clock.setFixedTime` in UTC that own those assertions — one for the
+  lead-in, one for date-driven bucketing. **The same trap applies to dates**:
+  a hardcoded date lands in a different bucket as real days pass, so anywhere
+  outside those blocks use the browser's own today.
 - **Tone is flat.** No streaks, badges, praise or guilt. Carry-ins are stated
   by age, never as failure. Generated copy carries no exclamation marks — a
   test asserts this.
