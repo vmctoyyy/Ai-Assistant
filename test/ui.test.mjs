@@ -176,6 +176,62 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   }
 
 
+
+  console.log('-- breathing room at the screen edges --');
+  await showBar(pg);
+  const edges = await pg.evaluate(() => {
+    const vh = innerHeight;
+    const bub = document.querySelector('.bubble').getBoundingClientRect();
+    const back = document.querySelector('.backbtn').getBoundingClientRect();
+    const hot = document.querySelector('.hotbar .hot').getBoundingClientRect();
+    const r = parseFloat(getComputedStyle(document.querySelector('.bubble')).borderTopLeftRadius);
+    return {
+      radius: r,
+      bubbleTop: Math.round(bub.top), bubbleSide: Math.round(bub.left),
+      bubbleBottom: Math.round(vh - bub.bottom),
+      headInset: Math.round(back.top - bub.top),
+      footInset: Math.round(bub.bottom - hot.bottom)
+    };
+  });
+  check('the bubble is held off every screen edge', edges.bubbleTop >= 12 &&
+    edges.bubbleSide >= 12 && edges.bubbleBottom >= 12,
+    `top ${edges.bubbleTop} side ${edges.bubbleSide} bottom ${edges.bubbleBottom}`);
+  /* Content nearer the edge than two thirds of the corner radius sits inside
+     the curve's sweep, which is what made the header read as crowded. */
+  check('the header clears the corner sweep', edges.headInset >= edges.radius * 0.6,
+    `${edges.headInset}px inside a ${edges.radius}px corner`);
+  check('and so does the footer', edges.footInset >= edges.radius * 0.6,
+    `${edges.footInset}px inside a ${edges.radius}px corner`);
+
+  /* env(safe-area-inset-*) is 0 in Chromium and ~34-59px on a real iPhone, so
+     the device's own layout is never exercised by default. Force the insets
+     on and check the shell still holds up — this is the one class of bug that
+     reaches the phone and never the suite. */
+  const safeArea = await pg.addStyleTag({ content:
+    '.screen{padding-top:59px !important;padding-bottom:34px !important}' });
+  await pg.waitForTimeout(350);
+  const inset = await pg.evaluate(() => {
+    const vh = innerHeight, vw = innerWidth;
+    const bub = document.querySelector('.bubble').getBoundingClientRect();
+    const body = document.querySelector('.screen-body');
+    const hot = document.querySelector('.hotbar').getBoundingClientRect();
+    return {
+      fitsTop: bub.top >= 59, fitsBottom: vh - bub.bottom >= 34,
+      footOnScreen: hot.bottom <= vh + 1,
+      bodyStillScrolls: body.scrollHeight > 0 && body.clientHeight > 0,
+      noOverflow: document.documentElement.scrollWidth <= vw + 1,
+      bubbleHasHeight: bub.height > 200
+    };
+  });
+  check('with an iPhone\'s insets the bubble still clears the notch', inset.fitsTop);
+  check('and the home indicator', inset.fitsBottom);
+  check('the footer stays on screen', inset.footOnScreen);
+  check('the body keeps its scroller', inset.bodyStillScrolls);
+  check('nothing overflows sideways', inset.noOverflow);
+  check('the bubble does not collapse', inset.bubbleHasHeight);
+  await safeArea.evaluate(el => el.remove());
+  await pg.waitForTimeout(250);
+
   console.log('-- add task: the full sheet --');
   /* Tap the way in BEFORE typing, and with an empty input, for the same
      reason the chip checks do: that is the path that broke on a real phone. */

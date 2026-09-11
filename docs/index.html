@@ -308,7 +308,7 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
   flex:none;background:var(--surface);
   border-top:1px solid var(--line);
   border-radius:0 0 var(--bubble-r) var(--bubble-r);
-  padding:.75rem 1.125rem .875rem;
+  padding:.75rem 1.125rem 1.25rem;
 }
 .composer .inner{max-width:var(--wrap);margin:0 auto;display:flex;gap:.5rem;align-items:center}
 .composer .btn{flex:none;padding-left:.875rem;padding-right:.875rem}
@@ -568,8 +568,8 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 .screen{
   height:100dvh;height:100vh;
   display:flex;
-  padding:calc(.5rem + env(safe-area-inset-top,0px)) .5rem
-          calc(.5rem + env(safe-area-inset-bottom,0px));
+  padding:calc(.75rem + env(safe-area-inset-top,0px)) .75rem
+          calc(.75rem + env(safe-area-inset-bottom,0px));
 }
 .bubble{
   flex:1;min-height:0;display:flex;flex-direction:column;
@@ -590,10 +590,13 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 .a-push{animation:screenPush var(--t-screen) var(--ease-ios) both}
 .a-pop {animation:screenPop  var(--t-screen) var(--ease-ios) both}
 .a-in  {animation:homeIn     var(--t-screen) var(--ease-ios) both}
+/* The top padding clears the bubble's 30px corner rather than sitting inside
+   its sweep, which is what made the header read as crowded against the edge
+   of the screen. Same at the other end, on the composer. */
 .screen-top{
   flex:none;background:var(--surface);
   display:flex;align-items:center;gap:.75rem;
-  padding:.875rem 1.125rem .625rem;
+  padding:1.25rem 1.125rem .625rem;
 }
 .backbtn{
   display:flex;align-items:center;gap:.25rem;
@@ -702,7 +705,7 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 .cart-full{background:var(--surface)}
 .cart-banner{
   flex:none;display:flex;align-items:center;gap:.5rem;
-  padding:.75rem .75rem .75rem 1rem;
+  padding:1.125rem .75rem .75rem 1rem;
 }
 .cart-banner .backbtn{min-height:40px}
 .cart-banner-name{
