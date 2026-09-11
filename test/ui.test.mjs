@@ -599,9 +599,12 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
     await pillRow.locator('.habitmark').count() === 1);
   check('a hand-made task carries no such mark',
     await pg.locator('.row').filter({ hasText: 'Sort the garage' }).locator('.habitmark').count() === 0);
-  check('the timed task leads the day',
-    (await pg.locator('.sec').first().locator('.row .txt').first().innerText()).includes('Take the pills'),
-    await pg.locator('.sec').first().locator('.row .txt').first().innerText());
+  /* Where a timed task sits now depends on the time of day, so that is
+     asserted against a frozen clock further down rather than here, where the
+     suite runs on whatever the real time happens to be. What matters in this
+     flow is that the minted task landed in Today at all. */
+  check('the minted task lands in Today, not a later bucket',
+    await pg.locator('.sec').first().locator('.row').filter({ hasText: 'Take the pills' }).count() === 1);
 
   console.log('-- habits: ticking, pausing, removing --');
   await pillRow.locator('.tickbtn').tap();
@@ -697,6 +700,85 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   console.log('  errors:', errs.length ? errs : 'none');
   await ctx.close();
 }
+
+/* ---- a later time waits at the bottom ----
+   Its own context with a frozen clock in UTC, so "is 21:00 still hours away"
+   has the same answer whenever the suite is run. Without this the checks pass
+   or fail depending on the time of day. */
+console.log('\n##### a later time waits its turn #####');
+{
+  const ctx = await b.newContext({ ...devices['iPhone 13'], hasTouch: true, timezoneId: 'UTC' });
+  const pg = await ctx.newPage();
+  const errs = [];
+  pg.on('pageerror', e => errs.push('PAGEERROR ' + e));
+  pg.on('console', m => { if (m.type() === 'error') errs.push(m.text().slice(0, 160)); });
+  const morning = new Date('2026-09-11T09:00:00Z');
+  await pg.clock.setFixedTime(morning);
+  await pg.goto(`${BASE}/index.html`);
+  await pg.waitForSelector('.home', { timeout: 10000 });
+  await settled(pg);
+  await pg.locator('button.tile[aria-label="Tasks"]').tap();
+  await pg.waitForTimeout(500);
+  if (await pg.locator('.brief').count()) {
+    await pg.getByRole('button', { name: 'Go to the full list' }).tap();
+    await pg.waitForTimeout(300);
+  }
+
+  await showBar(pg);
+  await pg.locator('.hot', { hasText: 'Brain dump' }).tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  await pg.locator('.sheet textarea').fill('Take medication 21:00\nTake medication 07:30\nWater the plants');
+  await pg.waitForTimeout(200);
+  await pg.getByRole('button', { name: /Add 3 tasks/ }).tap();
+  await pg.waitForTimeout(500);
+
+  const order = () => pg.locator('.sec').first().locator('.row .txt').allInnerTexts()
+    .then(rows => rows.map(r => r.split('\n')[0].trim()));
+  const morningOrder = await order();
+  check('at 09:00 the evening dose is last',
+    morningOrder[morningOrder.length - 1] === 'Take medication', morningOrder.join(' | '));
+  check('and the morning dose still leads', morningOrder[0] === 'Take medication',
+    morningOrder.join(' | '));
+  check('the untimed task sits above the evening one',
+    morningOrder.indexOf('Water the plants') < morningOrder.length - 1,
+    morningOrder.join(' | '));
+  check('exactly one row is marked as waiting', await pg.locator('.row.waiting').count() === 1,
+    String(await pg.locator('.row.waiting').count()));
+  check('the waiting row is the 21:00 one',
+    (await pg.locator('.row.waiting .duetag').innerText()).includes('21:00'),
+    await pg.locator('.row.waiting .duetag').innerText());
+  check('a waiting row reads quieter than the rest', await pg.evaluate(() => {
+    const w = getComputedStyle(document.querySelector('.row.waiting .txt')).color;
+    const n = getComputedStyle(document.querySelector('.row:not(.waiting):not(.done) .txt')).color;
+    return w !== n;
+  }));
+  check('but it is still fully tappable', await pg.evaluate(() => {
+    const r = document.querySelector('.row.waiting .tickbtn').getBoundingClientRect();
+    const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return !!(el && el.closest('.tickbtn'));
+  }));
+
+  /* Evening: the same task, three hours out. The app re-reads the clock on
+     focus, which is what a phone does when you pick it back up. */
+  await pg.clock.setFixedTime(new Date('2026-09-11T18:30:00Z'));
+  await pg.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await pg.waitForTimeout(400);
+  const eveningOrder = await order();
+  check('by 18:30 it has come up to the top', eveningOrder[0] === 'Take medication',
+    eveningOrder.join(' | '));
+  check('and no longer reads as waiting', await pg.locator('.row.waiting').count() === 0);
+  check('the morning dose, now overdue, is still there too',
+    eveningOrder.filter(x => x === 'Take medication').length === 2, eveningOrder.join(' | '));
+  check('ticking the evening dose off still works', await (async () => {
+    const row = pg.locator('.row').filter({ hasText: 'Take medication' }).first();
+    await row.locator('.tickbtn').tap();
+    await pg.waitForTimeout(350);
+    return await pg.locator('.row.done').count() === 1;
+  })());
+  console.log('  errors:', errs.length ? errs : 'none');
+  await ctx.close();
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 await b.close();
 stop();

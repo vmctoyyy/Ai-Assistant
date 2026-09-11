@@ -214,6 +214,8 @@
     var due = QD.dueLabel(task.dueDate, task.dueTime, today);
     if (due && task.endTime) due = due.replace(task.dueTime, task.dueTime + "\u2013" + task.endTime);
     var fromHabit = QD.isHabitTask(task);
+    /* Still hours off: on the list, but not asking to be read yet. */
+    var waiting = QD.isWaiting(task, today, props.now);
 
     function down(e) {
       if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -247,7 +249,8 @@
 
     return div({ className: "rowwrap" + (offset < -8 ? " sliding" : "") },
       div({
-        className: "row" + (done ? " done" : "") + (carry ? " carry" : ""),
+        className: "row" + (done ? " done" : "") + (carry ? " carry" : "") +
+          (waiting ? " waiting" : ""),
         style: {
           transform: "translateX(" + offset + "px)",
           transition: dragging.current ? "none" : "transform .18s ease"
@@ -1608,7 +1611,9 @@
     }, [tasks, recap, quotes, carts, habits, retired]);
 
     /* ---- derived ---- */
-    var rankedToday = useMemo(function () { return QD.rankToday(tasks.items, today); }, [tasks.items, today]);
+    var rankedToday = useMemo(function () {
+      return QD.rankToday(tasks.items, today, clock);
+    }, [tasks.items, today, clock]);
     var doneToday = useMemo(function () {
       return QD.completedInBucket(tasks.items, "today", today);
     }, [tasks.items, today]);
@@ -1801,7 +1806,7 @@
                 ? p({ className: "empty-note" }, "Nothing on today's list.")
                 : div({ className: "tasks" }, rankedToday.concat(doneToday).map(function (t) {
                     return h(TaskRow, {
-                      key: t.id, task: t, today: today,
+                      key: t.id, task: t, today: today, now: clock,
                       onToggle: function () { toggleTask(t.id); },
                       onDelete: function () { deleteTask(t.id); },
                       onOptions: function () { setEditingId(t.id); }

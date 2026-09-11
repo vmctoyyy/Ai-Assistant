@@ -250,17 +250,40 @@
     var r = IMP_ORDER[t.importance];
     return r === undefined ? 1 : r;
   }
+  /* How long before its time a timed task rises to the top of the day. Until
+     then it waits at the bottom: a 21:00 medication is not 09:00's business,
+     and having it in your eyeline all day is how it stops being read at all. */
+  var LEAD_MINUTES = 180;
+
+  function minutesOfTime(v) {
+    var t = validTime(v);
+    return t ? (+t.slice(0, 2)) * 60 + (+t.slice(3, 5)) : null;
+  }
+  /* Which of today's three bands a task sits in:
+       0  a time that is due, overdue, or close enough to matter — the top
+       1  the flexible work, ranked as it always was
+       2  a time still further off than the lead-in — the bottom
+     Without a clock (`nowMin` omitted) there is no "yet", so every timed task
+     leads. That keeps callers that do not care about the time of day — the
+     brief, the tests for the other rules — on the old two-band behaviour. */
+  function todayBand(t, today, nowMin) {
+    var at = isFixedToday(t, today) ? minutesOfTime(t.dueTime) : null;
+    if (at === null) return 1;
+    if (typeof nowMin !== "number") return 0;
+    return at - nowMin <= LEAD_MINUTES ? 0 : 2;
+  }
+
   /* Deterministic: every comparison ends in a total order, so the list never
-     reshuffles between reloads on the same day.
-     A time now leads the ranking: anything anchored to the clock sits at the
-     top of today in chronological order, and the flexible work — carry-ins
-     oldest first, then importance — follows behind it. */
-  function compareToday(today) {
+     reshuffles between reloads at the same moment.
+     A time leads the ranking once it is close enough: anything anchored to
+     the clock and in play sits at the top of today in chronological order,
+     the flexible work — carry-ins oldest first, then importance — follows,
+     and a time still hours away waits underneath it all. */
+  function compareToday(today, nowMin) {
     return function (a, b) {
-      var ta = isFixedToday(a, today) ? a.dueTime : null;
-      var tb = isFixedToday(b, today) ? b.dueTime : null;
-      if (!!ta !== !!tb) return ta ? -1 : 1;
-      if (ta && tb && ta !== tb) return ta < tb ? -1 : 1;
+      var ba = todayBand(a, today, nowMin), bb = todayBand(b, today, nowMin);
+      if (ba !== bb) return ba - bb;
+      if (ba !== 1 && a.dueTime !== b.dueTime) return a.dueTime < b.dueTime ? -1 : 1;
       var ca = isCarryIn(a, today), cb = isCarryIn(b, today);
       if (ca !== cb) return ca ? -1 : 1;
       if (ca && cb && a.firstTodayOn !== b.firstTodayOn) return a.firstTodayOn < b.firstTodayOn ? -1 : 1;
@@ -270,10 +293,13 @@
       return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
     };
   }
-  function rankToday(items, today) {
+  function rankToday(items, today, nowMin) {
     return items.filter(function (t) { return t.bucket === "today" && isOpen(t); })
-                .slice().sort(compareToday(today));
+                .slice().sort(compareToday(today, nowMin));
   }
+  /* True while a timed task is still waiting its turn at the bottom. The row
+     uses this to sit quieter than the work actually in front of you. */
+  function isWaiting(t, today, nowMin) { return todayBand(t, today, nowMin) === 2; }
   /* Tasks ticked off today, in the order they were ticked. They stay on
      screen, struck through, until the midnight rollover clears them — a tap
      is easy to make by accident and must be easy to take back. */
@@ -1163,6 +1189,8 @@
     completedInBucket: completedInBucket,
     pickSuggestions: pickSuggestions, pickStale: pickStale,
     isFixedToday: isFixedToday, fixedPoints: fixedPoints, flexibleToday: flexibleToday,
+    LEAD_MINUTES: LEAD_MINUTES, minutesOfTime: minutesOfTime,
+    todayBand: todayBand, isWaiting: isWaiting,
     pickAnchored: pickAnchored, planLine: planLine, buildICS: buildICS,
     parseTaskLine: parseTaskLine, parseBrainDump: parseBrainDump,
     DEFAULT_QUOTES: DEFAULT_QUOTES, normQuotes: normQuotes, activeQuotes: activeQuotes,
