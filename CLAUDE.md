@@ -252,8 +252,19 @@ in the swipe handler made swipe-to-delete unreachable for months, because the
 row's tap targets are themselves buttons. Scope such guards to the specific
 control (`.iconbtn`), not to a tag name.
 
-Also: `env(safe-area-inset-*)` is `0` in Chromium but ~34px on a real iPhone,
-so anything positioned against it is untested by default. Prefer layouts that
+Also: `env(safe-area-inset-*)` is `0` in Chromium but ~34-59px on a real
+iPhone, so anything positioned against it is untested by default. The UI suite
+now forces the insets on with an injected style and re-checks the shell — the
+bubble still clearing the notch and the home indicator, the footer still on
+screen, the body still scrolling, nothing overflowing sideways. Keep that
+block; it is the only thing exercising the device's real layout.
+
+**Content must clear the bubble's corner sweep.** The 30px radius means
+anything within about two thirds of that of the top or bottom edge reads as
+crowded against the screen, which the user noticed. `.screen` holds the bubble
+12px off every edge and `.screen-top` / `.composer` hold their content 20px
+inside it; there are assertions on both, expressed against the live radius so
+they follow `--bubble-r` if it changes. Prefer layouts that
 do not depend on it — a flex header/body/footer rather than `position:sticky`
 with a negative offset. `-webkit-overflow-scrolling:touch` mis-hit-tests on
 iOS Safari; do not reintroduce it.
