@@ -1,7 +1,13 @@
 # Quiet Desk — working notes
 
 A personal daily dashboard for one user, installed as a PWA on an iPhone home
-screen. Static site in `docs/`, served by GitHub Pages from `main`.
+screen. Static site in `docs/`, served by GitHub Pages.
+
+**Pages deploys from the working branch `claude/personal-daily-dashboard-jibuyn`,
+not from `main`.** Verified against the deployments API: every `github-pages`
+deployment carries that branch as its ref, and none has ever been cut for a
+`main` commit. So the push to the branch is what reaches the phone. Do not
+"fix" this by pushing only to `main` — that would deploy nothing.
 
 The app is a home screen plus four apps: **Tasks**, **Recap**, **Quotes**,
 **Shopping** (carts), and two non-tappable placeholders. Home is a fixed
@@ -29,15 +35,21 @@ model under `habitsv2` and must never write to `habits`.
 The user has given standing permission to merge to `main`. Every change ends:
 
 ```
-git push -u origin <feature-branch>
-git checkout main && git merge --ff-only <feature-branch>
+git push -u origin <feature-branch>     # this is the one that deploys
+git checkout main && git merge <feature-branch>
 git push origin main
 git checkout <feature-branch>
 ```
 
-`main` is what GitHub Pages serves, so work left on a feature branch never
-reaches the user's phone. This has already caused one silently missed update.
-Report the merge in the summary; do not ask permission for it.
+The **first** line is what reaches the user's phone, since Pages builds the
+working branch (see above). Keeping `main` in step is still worth doing so the
+default branch is not stale, but it is bookkeeping, not the deploy — do not
+report a merge to `main` as the thing that shipped. Report the merge in the
+summary; do not ask permission for it.
+
+(An earlier version of this file claimed Pages served `main`. It never has.
+The "silently missed update" that story was attached to was really the service
+worker not applying itself, which is fixed under Non-negotiables below.)
 
 ## Non-negotiables
 
