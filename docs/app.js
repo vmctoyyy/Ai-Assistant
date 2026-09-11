@@ -33,6 +33,8 @@
   var I_CHEV = "M6 9l6 6 6-6";
   var I_BACK = "M15 19l-7-7 7-7";
   var I_DOTS = "M6 12h.01M12 12h.01M18 12h.01";
+  var I_REPEAT = "M17 4l3 3-3 3M20 7H7a3 3 0 0 0-3 3v1M7 20l-3-3 3-3M4 17h13a3 3 0 0 0 3-3v-1";
+  var I_DUMP = "M5 5h14M5 10h14M5 15h9M5 20h5";
 
   /* ---------- dates ---------- */
   var WD = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
@@ -210,6 +212,8 @@
     var done = !!task.completedAt;
     var carry = QD.isCarryIn(task, today);
     var due = QD.dueLabel(task.dueDate, task.dueTime, today);
+    if (due && task.endTime) due = due.replace(task.dueTime, task.dueTime + "\u2013" + task.endTime);
+    var fromHabit = QD.isHabitTask(task);
 
     function down(e) {
       if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -265,6 +269,10 @@
           span({ className: "txt" },
             task.importance === "must" && !done
               ? span({ className: "mustdot", title: "Must-do", "aria-label": "Must-do" }) : null,
+            /* Marked as coming from a habit, so it is clear the thing to edit
+               is the standing arrangement rather than this one instance. */
+            fromHabit ? span({ className: "habitmark", title: "From a habit",
+              "aria-label": "From a habit" }, icon(I_REPEAT, 13)) : null,
             task.title,
             due ? span({ className: "duetag" }, due) : null,
             carry ? span({ className: "carrytag" }, "since " + QD.sinceLabel(task.firstTodayOn, today)) : null,
@@ -951,6 +959,245 @@
         : null);
   }
 
+  /* ---------- habits ---------- */
+  var REC_OPTS = [
+    { value: "weekly", label: "Weekly" }, { value: "monthly", label: "Monthly" },
+    { value: "yearly", label: "Yearly" }, { value: "dates", label: "Dates" }
+  ];
+  /* Monday first: the week reads Mon–Sun even though the model counts from
+     Sunday, so the picker matches the summary line. */
+  var DAY_PICKS = [1, 2, 3, 4, 5, 6, 0];
+
+  function blankSlot() {
+    return { id: uid(), recurrence: "weekly", daysOfWeek: [], dayOfMonth: 1,
+             monthsOfYear: [], specificDates: [], startTime: "09:00", endTime: "" };
+  }
+  function slotToDraft(s) {
+    return { id: s.id, recurrence: s.recurrence,
+             daysOfWeek: s.daysOfWeek.slice(), dayOfMonth: s.dayOfMonth || 1,
+             monthsOfYear: s.monthsOfYear.slice(), specificDates: s.specificDates.slice(),
+             startTime: s.startTime, endTime: s.endTime || "" };
+  }
+
+  /* One slot's editor. Only the fields the chosen recurrence actually uses
+     are shown — a weekly slot has no business asking for a month. */
+  function SlotEditor(props) {
+    var slot = props.slot, onChange = props.onChange;
+    function set(patch) { onChange(Object.assign({}, slot, patch)); }
+    function toggleIn(list, v) {
+      return list.indexOf(v) >= 0
+        ? list.filter(function (x) { return x !== v; })
+        : list.concat([v]);
+    }
+    var bad = !QD.normSlot(slot);
+
+    return div({ className: "slot" + (bad ? " slot-bad" : "") },
+      div({ className: "slot-top" },
+        span({ className: "slot-n" }, props.label),
+        props.onRemove ? button({
+          className: "iconbtn", type: "button", onClick: props.onRemove,
+          "aria-label": "Remove " + props.label
+        }, icon(I_X, 16)) : null),
+
+      h(Chips, { label: "Repeats", options: REC_OPTS, value: slot.recurrence,
+        onChange: function (v) { set({ recurrence: v }); } }),
+
+      slot.recurrence === "weekly" ? div({ className: "daypick", role: "group",
+        "aria-label": "Days of the week" },
+        DAY_PICKS.map(function (n) {
+          var on = slot.daysOfWeek.indexOf(n) >= 0;
+          return button({
+            key: n, type: "button", className: "day" + (on ? " on" : ""),
+            "aria-pressed": on ? "true" : "false", "aria-label": WD[n],
+            onMouseDown: function (e) { e.preventDefault(); },
+            onClick: function () { set({ daysOfWeek: toggleIn(slot.daysOfWeek, n) }); }
+          }, WD3[n].slice(0, 2));
+        })) : null,
+
+      slot.recurrence === "monthly" || slot.recurrence === "yearly"
+        ? div({ className: "slot-row" },
+            h("label", { className: "slot-lab" }, "Day of the month"),
+            input({ className: "field num", type: "number", min: 1, max: 31,
+              value: slot.dayOfMonth, "aria-label": "Day of the month",
+              onChange: function (e) { set({ dayOfMonth: e.target.value }); } }))
+        : null,
+
+      slot.recurrence === "yearly" ? div({ className: "monthpick", role: "group",
+        "aria-label": "Months" },
+        MO3.map(function (m, i) {
+          var on = slot.monthsOfYear.indexOf(i + 1) >= 0;
+          return button({
+            key: m, type: "button", className: "day mon" + (on ? " on" : ""),
+            "aria-pressed": on ? "true" : "false", "aria-label": m,
+            onMouseDown: function (e) { e.preventDefault(); },
+            onClick: function () { set({ monthsOfYear: toggleIn(slot.monthsOfYear, i + 1) }); }
+          }, m);
+        })) : null,
+
+      slot.recurrence === "dates" ? div({ className: "datepick" },
+        slot.specificDates.map(function (d) {
+          return div({ className: "datechip", key: d },
+            span(null, QD.dueLabelLong(d, null, props.today)),
+            button({ className: "iconbtn", type: "button", "aria-label": "Remove " + d,
+              onClick: function () {
+                set({ specificDates: slot.specificDates.filter(function (x) { return x !== d; }) });
+              } }, icon(I_X, 15)));
+        }),
+        div({ className: "slot-row" },
+          input({ className: "field", type: "date", value: props.draftDate || "",
+            "aria-label": "Add a date",
+            onChange: function (e) { props.onDraftDate(e.target.value); } }),
+          button({ className: "btn", type: "button", disabled: !props.draftDate,
+            onMouseDown: function (e) { e.preventDefault(); },
+            onClick: function () {
+              if (!props.draftDate) return;
+              set({ specificDates: slot.specificDates.concat([props.draftDate]) });
+              props.onDraftDate("");
+            } }, "Add date"))) : null,
+
+      div({ className: "slot-row" },
+        h("label", { className: "slot-lab" }, "Starts"),
+        input({ className: "field", type: "time", value: slot.startTime,
+          "aria-label": "Start time",
+          onChange: function (e) { set({ startTime: e.target.value }); } })),
+      div({ className: "slot-row" },
+        h("label", { className: "slot-lab" }, "Ends",
+          slot.endTime ? null : span({ className: "opt" }, "optional")),
+        input({ className: "field", type: "time", value: slot.endTime,
+          "aria-label": "End time",
+          onChange: function (e) { set({ endTime: e.target.value }); } }),
+        slot.endTime ? button({ className: "linkbtn", type: "button",
+          onMouseDown: function (e) { e.preventDefault(); },
+          onClick: function () { set({ endTime: "" }); } }, "Clear") : null),
+
+      bad ? p({ className: "slot-warn" }, props.slot.recurrence === "weekly"
+        ? "Pick at least one day."
+        : (props.slot.recurrence === "dates" ? "Add at least one date."
+          : (props.slot.recurrence === "yearly" ? "Pick at least one month and a day."
+            : "Give this a day of the month."))) : null);
+  }
+
+  /* Add or edit one habit. The preview line is the same summary the list
+     shows, so what will be saved is legible before it is. */
+  function HabitSheet(props) {
+    var habit = props.habit;
+    var s1 = useState(habit ? habit.name : ""), name = s1[0], setName = s1[1];
+    var s2 = useState(habit ? habit.importance : "should"), imp = s2[0], setImp = s2[1];
+    var s3 = useState(function () {
+      return habit ? habit.schedule.map(slotToDraft) : [blankSlot()];
+    }), slots = s3[0], setSlots = s3[1];
+    var s4 = useState(""), draftDate = s4[0], setDraftDate = s4[1];
+    var s5 = useState(false), armed = s5[0], setArmed = s5[1];
+    var clean = name.trim();
+
+    var built = useMemo(function () {
+      return QD.makeHabit(clean || "Untitled", {
+        id: habit ? habit.id : undefined,
+        importance: imp, active: habit ? habit.active : true,
+        schedule: slots, now: habit ? habit.createdAt : Date.now()
+      });
+    }, [clean, imp, slots, habit]);
+    var usable = slots.filter(function (s) { return !!QD.normSlot(s); }).length;
+    var canSave = !!clean && usable === slots.length && usable > 0;
+
+    function setSlot(i, next) {
+      setSlots(slots.map(function (s, j) { return j === i ? next : s; }));
+    }
+    return h(Sheet, {
+      title: habit ? "Edit habit" : "New habit", onClose: props.onClose,
+      footerSpread: true,
+      footer: [
+        habit ? button({
+          key: "del", className: "btn danger" + (armed ? " armed" : ""),
+          onClick: function () {
+            if (armed) { props.onDelete(habit.id); props.onClose(); } else setArmed(true);
+          },
+          onBlur: function () { setArmed(false); }
+        }, armed ? "Tap again to remove" : "Remove") : span({ key: "sp" }),
+        button({ key: "save", className: "btn primary", disabled: !canSave,
+          onClick: function () {
+            if (!canSave || !built) return;
+            props.onSave(built);
+            props.onClose();
+          } }, "Save")
+      ]
+    },
+      div({ className: "sheetfield" },
+        h("label", { className: "sheetlab", htmlFor: "habit-name" }, "NAME"),
+        input({ id: "habit-name", className: "field", value: name,
+          placeholder: "Gym", "aria-label": "Habit name", enterKeyHint: "done",
+          onChange: function (e) { setName(e.target.value); } })),
+
+      div({ className: "sheetfield" },
+        h("label", { className: "sheetlab" }, "IMPORTANCE"),
+        h(Chips, { label: "Importance", options: IMP_OPTS, value: imp, onChange: setImp })),
+
+      div({ className: "sheetfield" },
+        h("label", { className: "sheetlab" }, "WHEN"),
+        slots.map(function (s, i) {
+          return h(SlotEditor, {
+            key: s.id, slot: s, today: props.today,
+            label: slots.length > 1 ? "Time " + (i + 1) : "Schedule",
+            draftDate: draftDate, onDraftDate: setDraftDate,
+            onChange: function (next) { setSlot(i, next); },
+            onRemove: slots.length > 1 ? function () {
+              setSlots(slots.filter(function (x, j) { return j !== i; }));
+            } : null
+          });
+        }),
+        button({ className: "btn", type: "button",
+          onMouseDown: function (e) { e.preventDefault(); },
+          onClick: function () { setSlots(slots.concat([blankSlot()])); }
+        }, "+ Add another time")),
+
+      built ? p({ className: "habit-preview" },
+        "Saves as: " + QD.habitSummary(built)) : null);
+  }
+
+  function HabitsApp(props) {
+    var list = props.habits;
+    return h(Screen, { title: "Habits", onBack: props.onBack, anim: props.anim },
+      div({ className: "habit-lead" },
+        button({ className: "btn", onClick: function () { props.onEdit("new"); } },
+          icon(I_PLUS, 16), span(null, "Add habit"))),
+
+      list.length === 0
+        ? div({ className: "habit-empty" },
+            p(null, "Nothing here yet."),
+            p({ className: "muted" },
+              "A habit is a standing arrangement — the gym on Tuesdays, the rubbish on Wednesday nights. Each morning the ones that fall on that day put themselves on your list."),
+            p({ className: "muted" },
+              "One or two is a good place to start. The whole week at once tends to become another thing to keep up with."))
+        : div({ className: "habit-list" }, list.map(function (hb) {
+            var on = QD.habitSlotsOn(hb, props.today).length > 0;
+            var next = hb.active && !on ? QD.nextHabitDay(hb, QD.shiftKey(props.today, 1)) : null;
+            return div({ className: "habit-bubble" + (hb.active ? "" : " paused"), key: hb.id },
+              button({ className: "habit-body",
+                onClick: function () { props.onEdit(hb.id); },
+                "aria-label": "Edit habit: " + hb.name },
+                div({ className: "habit-name" }, hb.name,
+                  hb.active ? null : span({ className: "habit-tag" }, "Paused")),
+                div({ className: "habit-when" }, QD.habitSummary(hb)),
+                div({ className: "habit-meta" },
+                  hb.importance === "must" ? span({ className: "imp-must" }, "Must") : null,
+                  hb.active
+                    ? span(null, on ? "On today's list"
+                        : (next ? "Next on " + QD.dueLabelLong(next, null, props.today) : "Not scheduled"))
+                    : span(null, "Not generating tasks"))),
+              button({
+                className: "habit-toggle" + (hb.active ? " on" : ""),
+                "aria-pressed": hb.active ? "true" : "false",
+                "aria-label": (hb.active ? "Pause" : "Resume") + " " + hb.name,
+                onClick: function () { props.onSetActive(hb.id, !hb.active); }
+              }, hb.active ? "On" : "Off"));
+          })),
+
+      list.length
+        ? p({ className: "habit-foot" },
+            "Pausing keeps a habit and its schedule but stops it adding anything. Ticking off a day's task is just that day.")
+        : null);
+  }
+
   /* ---------- app ---------- */
   function App() {
     var s0 = useState(true), loading = s0[0], setLoading = s0[1];
@@ -961,6 +1208,9 @@
     var s4 = useState(QD.blankRecap), recap = s4[0], setRecapRaw = s4[1];
     var s5 = useState(function () { return { list: [] }; }), quotes = s5[0], setQuotesRaw = s5[1];
     var s6 = useState(QD.blankCarts), carts = s6[0], setCartsRaw = s6[1];
+    var sH = useState(QD.blankHabits), habits = sH[0], setHabitsRaw = sH[1];
+    var sHE = useState(null), editingHabit = sHE[0], setEditingHabit = sHE[1];
+    var sHF = useState("home"), habitsFrom = sHF[0], setHabitsFrom = sHF[1];
     var sC = useState(null), openCartId = sC[0], setOpenCartId = sC[1];
     var sA = useState(false), addingCart = sA[0], setAddingCart = sA[1];
     var sX = useState(null), confirming = sX[0], setConfirming = sX[1];
@@ -973,6 +1223,10 @@
     var quickRef = useRef("");
     quickRef.current = quick;
     var s9 = useState(false), composerOpen = s9[0], setComposerOpen = s9[1];
+    /* The footer rests as a three-button bar and becomes the quick-add
+       composer on demand. */
+    var sAdd = useState(false), adding = sAdd[0], setAdding = sAdd[1];
+    var addRef = useRef(null);
     var s10 = useState("today"), addBucket = s10[0], setAddBucket = s10[1];
     var s11 = useState("should"), addImp = s11[0], setAddImp = s11[1];
     var s12 = useState(false), dumping = s12[0], setDumping = s12[1];
@@ -995,6 +1249,9 @@
     var setRecap    = useCallback(function (v) { setRecapRaw(v);    save("recap", v); }, []);
     var setQuotes   = useCallback(function (v) { setQuotesRaw(v);   save("quotes", v); }, []);
     var setCarts    = useCallback(function (v) { setCartsRaw(v);    save("carts", v); }, []);
+    /* habitsv2, not habits: the old toggle app's dot history still sits under
+       `habits` and is carried untouched. */
+    var setHabits   = useCallback(function (v) { setHabitsRaw(v);   save("habitsv2", v); }, []);
     var setPrefs    = useCallback(function (v) { setPrefsRaw(v);    save("prefs", v); }, []);
 
     /* boot */
@@ -1020,7 +1277,8 @@
             readKey("tasks", null), readKey("prefs", null),
             readKey("recap", null), readKey("quotes", null), readKey("shopping", null),
             readKey("carts", null),
-            readKey("habits", null), readKey("markets", null), readKey("schedule", null)
+            readKey("habits", null), readKey("markets", null), readKey("schedule", null),
+            readKey("habitsv2", null)
           ]).then(function (res) {
             if (cancelled) return;
             var t = QD.migrate(res[0], day);
@@ -1031,10 +1289,17 @@
               rc = QD.pruneRecap(QD.archiveCompleted(rc, t.items, t.lastRollOn), day);
             }
             t = QD.rollDay(t, day);
+            /* Habits mint their instances on open, after the rollover has
+               cleared yesterday's — a PWA gets no time to run while closed,
+               so this is the only moment the day's routine can appear. */
+            var hb = QD.generateHabitTasks(QD.normHabits(res[9]), t.items, day);
+            t = { version: 2, items: hb.items, doneYesterday: t.doneYesterday,
+                  lastRollOn: t.lastRollOn };
             var pf = normPrefs(res[1]);
 
             setToday(day);
             setTasksRaw(t);
+            setHabitsRaw(hb.habits);
             setRecapRaw(rc);
             setQuotesRaw(QD.normQuotes(res[3]));
             /* Carts absorb the old flat shopping list on first run. */
@@ -1048,6 +1313,7 @@
             save("tasks", t);
             save("recap", rc);
             save("carts", ct);
+            save("habitsv2", hb.habits);
           });
         })
         .catch(function () {
@@ -1096,11 +1362,16 @@
       if (now === today) return;
       setToday(now);
       setRecap(QD.pruneRecap(QD.archiveCompleted(recap, tasks.items, today), now));
-      setTasks(QD.rollDay(tasks, now));
+      var rolled = QD.rollDay(tasks, now);
+      var minted = QD.generateHabitTasks(habits, rolled.items, now);
+      setTasks({ version: 2, items: minted.items, doneYesterday: rolled.doneYesterday,
+                 lastRollOn: rolled.lastRollOn });
+      setHabits(minted.habits);
       setCarts(QD.sweepCarts(carts, now));
       /* lastBriefShownOn is deliberately left on yesterday, so the first
          visit to Tasks after midnight still opens the brief. */
-    }, [clock, today, loading, tasks, recap, carts, setTasks, setRecap, setCarts]);
+    }, [clock, today, loading, tasks, recap, carts, habits,
+        setTasks, setRecap, setCarts, setHabits]);
 
     /* ---- task actions ---- */
     function commit(items) {
@@ -1271,14 +1542,50 @@
       }
     }
 
+    /* ---- habit actions ----
+       Saving a habit mints anything it has already missed today: the ledger
+       is keyed per slot, so a habit added at nine on a Wednesday still puts
+       its Wednesday task up rather than waiting until tomorrow. */
+    function commitHabits(list, gen) {
+      var next = { habits: list, gen: gen || habits.gen, lastGenOn: null };
+      var minted = QD.generateHabitTasks(next, tasks.items, today);
+      setHabits(minted.habits);
+      if (minted.added.length) {
+        setTasks({ version: 2, items: minted.items,
+                   doneYesterday: tasks.doneYesterday, lastRollOn: tasks.lastRollOn });
+      }
+    }
+    function saveHabit(habit) {
+      var exists = habits.habits.some(function (hb) { return hb.id === habit.id; });
+      commitHabits(exists
+        ? habits.habits.map(function (hb) { return hb.id === habit.id ? habit : hb; })
+        : habits.habits.concat([habit]));
+    }
+    function setHabitActive(id, active) {
+      commitHabits(habits.habits.map(function (hb) {
+        return hb.id === id ? Object.assign({}, hb, { active: active }) : hb;
+      }));
+    }
+    /* Removing a habit takes its ledger entries with it, so a habit added
+       back under a new id is not held back by the old one's record. Tasks it
+       already minted are left on today's list — they are the user's now. */
+    function deleteHabit(id) {
+      var gen = {};
+      Object.keys(habits.gen).forEach(function (k) {
+        if (k.split(":")[0] !== id) gen[k] = habits.gen[k];
+      });
+      commitHabits(habits.habits.filter(function (hb) { return hb.id !== id; }), gen);
+    }
+
     /* Clears the apps that are live. Retired keys are deliberately left
-       alone — habit history in particular is meant to survive. */
+       alone — the old toggle app's habit history is meant to survive. */
     function resetAll() {
       var day = todayKey();
       setTasks({ version: 2, items: [], doneYesterday: 0, lastRollOn: day });
       setRecap(QD.blankRecap());
       setCarts(QD.blankCarts());
       setQuotes({ list: [] });
+      setHabits(QD.blankHabits());
       setArmed(false); setWarn(null);
     }
     function restore(data) {
@@ -1287,6 +1594,7 @@
       setRecap(QD.pruneRecap(QD.normRecap(data.recap), day));
       setQuotes(QD.normQuotes(data.quotes));
       setCarts(QD.sweepCarts(QD.normCarts(data.carts, QD.normShopping(data.shopping)), day));
+      setHabits(QD.normHabits(data.habitsv2));
       if (data.habits || data.markets || data.schedule) {
         setRetired({ habits: data.habits, markets: data.markets, schedule: data.schedule });
       }
@@ -1294,10 +1602,10 @@
     }
     var snapshot = useMemo(function () {
       return { app: "quiet-desk", version: 3, exportedAt: new Date().toISOString(),
-        tasks: tasks, recap: recap, quotes: quotes, carts: carts,
+        tasks: tasks, recap: recap, quotes: quotes, carts: carts, habitsv2: habits,
         habits: retired.habits, markets: retired.markets, schedule: retired.schedule,
         shopping: retired.shopping };
-    }, [tasks, recap, quotes, carts, retired]);
+    }, [tasks, recap, quotes, carts, habits, retired]);
 
     /* ---- derived ---- */
     var rankedToday = useMemo(function () { return QD.rankToday(tasks.items, today); }, [tasks.items, today]);
@@ -1309,6 +1617,13 @@
       return QD.quoteForDay(quoteList, today);
     }, [quoteList, today]);
     var cartList = useMemo(function () { return QD.cartsNewestFirst(carts); }, [carts]);
+    /* Newest last, so the list does not reshuffle as habits are added. */
+    var habitList = useMemo(function () {
+      return habits.habits.slice().sort(function (a, b) {
+        if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+        return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+      });
+    }, [habits]);
     var shopList = useMemo(function () { return QD.shopsByName(carts); }, [carts]);
     var openCart = useMemo(function () {
       return carts.carts.filter(function (c) { return c.id === openCartId; })[0] || null;
@@ -1332,49 +1647,76 @@
         span({ className: "sr" }, "Loading your dashboard"));
     }
 
+    /* Opening the composer has to focus the input inside the tap that asked
+       for it — iOS only raises the keyboard for a focus() call that is still
+       inside the gesture, so the state change is flushed first rather than
+       left to the next render. */
+    function openAdd() {
+      if (adding) { if (addRef.current) addRef.current.focus(); return; }
+      try { ReactDOM.flushSync(function () { setAdding(true); }); }
+      catch (e) { setAdding(true); }
+      if (addRef.current) addRef.current.focus();
+    }
+    function closeAdd() {
+      setAdding(false); setComposerOpen(false);
+      setQuick(""); setAddBucket("today"); setAddImp("should");
+    }
+
+    var hotbar = div({ className: "hotbar" },
+      button({ className: "hot", type: "button", onClick: openAdd },
+        icon(I_PLUS, 18), span(null, "Add task")),
+      button({ className: "hot", type: "button",
+        onClick: function () { openApp("habits"); } },
+        icon(I_REPEAT, 18), span(null, "Habits")),
+      button({ className: "hot", type: "button",
+        onClick: function () { setDumping(true); } },
+        icon(I_DUMP, 18), span(null, "Brain dump")));
+
     var composer = div({ className: "composer" },
-      composerOpen ? div({ className: "compchips" },
-        h(Chips, { label: "Bucket", options: BUCKET_OPTS, value: addBucket, onChange: setAddBucket }),
-        h(Chips, { label: "Importance", options: IMP_OPTS, value: addImp, onChange: setAddImp })) : null,
-      h("form", {
-        className: "inner",
-        onSubmit: function (e) {
-          e.preventDefault();
-          var t = quick.trim();
-          if (!t) return;
-          addTasks([t], addBucket, addImp);
-          setQuick(""); setAddBucket("today"); setAddImp("should");
-          var el = e.currentTarget.querySelector("input");
-          if (el) el.focus();
-        }
-      },
-        input({
-          className: "field", value: quick,
-          placeholder: briefOpen ? "Anything else for today?" : "Add a task",
-          "aria-label": "Add a task", enterKeyHint: "done",
-          onFocus: function () { setComposerOpen(true); },
-          onBlur: function () {
-            /* Safety net for browsers that blur before the click: only close
-               once focus has genuinely left the composer. */
-            setTimeout(function () {
-              var el = document.activeElement;
-              if (el && el.closest && el.closest(".composer")) return;
-              if (!quickRef.current.trim()) setComposerOpen(false);
-            }, 200);
-          },
-          onChange: function (e) { setQuick(e.target.value); }
-        }),
-        button({
-          className: "btn primary addbtn", type: "submit", disabled: !quick.trim(),
-          /* Hold focus so the keyboard stays up for the next task. */
-          onMouseDown: function (e) { e.preventDefault(); },
-          "aria-label": "Add task"
-        }, "Add"),
-        button({
-          className: "btn dumpbtn", type: "button",
-          onMouseDown: function (e) { e.preventDefault(); },
-          onClick: function () { setDumping(true); }
-        }, "Brain dump")));
+      adding ? h(React.Fragment, null,
+        composerOpen ? div({ className: "compchips" },
+          h(Chips, { label: "Bucket", options: BUCKET_OPTS, value: addBucket, onChange: setAddBucket }),
+          h(Chips, { label: "Importance", options: IMP_OPTS, value: addImp, onChange: setAddImp })) : null,
+        h("form", {
+          className: "inner",
+          onSubmit: function (e) {
+            e.preventDefault();
+            var t = quick.trim();
+            if (!t) return;
+            addTasks([t], addBucket, addImp);
+            setQuick(""); setAddBucket("today"); setAddImp("should");
+            var el = e.currentTarget.querySelector("input");
+            if (el) el.focus();
+          }
+        },
+          input({
+            className: "field", value: quick, ref: addRef,
+            placeholder: briefOpen ? "Anything else for today?" : "Add a task",
+            "aria-label": "Add a task", enterKeyHint: "done",
+            onFocus: function () { setComposerOpen(true); },
+            onBlur: function () {
+              /* Safety net for browsers that blur before the click: only fold
+                 the composer away once focus has genuinely left it. */
+              setTimeout(function () {
+                var el = document.activeElement;
+                if (el && el.closest && el.closest(".composer")) return;
+                if (!quickRef.current.trim()) { setAdding(false); setComposerOpen(false); }
+              }, 200);
+            },
+            onChange: function (e) { setQuick(e.target.value); }
+          }),
+          button({
+            className: "btn primary addbtn", type: "submit", disabled: !quick.trim(),
+            /* Hold focus so the keyboard stays up for the next task. */
+            onMouseDown: function (e) { e.preventDefault(); },
+            "aria-label": "Add task"
+          }, "Add"),
+          button({
+            className: "btn closebtn", type: "button", "aria-label": "Close the composer",
+            onMouseDown: function (e) { e.preventDefault(); },
+            onClick: closeAdd
+          }, icon(I_X, 17))))
+        : hotbar);
 
     var editingTask = editingId
       ? tasks.items.filter(function (t) { return t.id === editingId; })[0] : null;
@@ -1398,7 +1740,12 @@
     /* The morning brief belongs to Tasks: it opens the first time Tasks is
        visited each day, and is reachable from its header after that. */
     function openApp(id) {
+      if (id === "habits" && route === "tasks") {
+        go("a-push", function () { setHabitsFrom("tasks"); setRoute("habits"); });
+        return;
+      }
       go("a-open", function () {
+        if (id === "habits") setHabitsFrom("home");
         if (id === "tasks" && prefs.lastBriefShownOn !== today) {
           setBriefOpen(true);
           setPrefs({ installHintDismissed: prefs.installHintDismissed,
@@ -1498,6 +1845,25 @@
     if (route === "recap") {
       return h(React.Fragment, null,
         h(RecapApp, { key: nav.n, anim: nav.anim, onBack: home, days: recapWeek, today: today }), overlays);
+    }
+    if (route === "habits") {
+      var habitSheet = editingHabit ? h(HabitSheet, {
+        key: editingHabit,
+        habit: editingHabit === "new" ? null
+          : habits.habits.filter(function (hb) { return hb.id === editingHabit; })[0],
+        today: today,
+        onClose: function () { setEditingHabit(null); },
+        onSave: saveHabit, onDelete: deleteHabit
+      }) : null;
+      return h(React.Fragment, null,
+        h(HabitsApp, { key: nav.n, anim: nav.anim, today: today,
+          habits: habitList,
+          onBack: habitsFrom === "tasks"
+            ? function () { go("a-pop", function () { setRoute("tasks"); }); }
+            : home,
+          onEdit: setEditingHabit,
+          onSetActive: setHabitActive }),
+        habitSheet, overlays);
     }
     if (route === "shopping" || route === "shops") {
       var sheets = h(React.Fragment, null,

@@ -6,7 +6,9 @@ screen. Static site in `docs/`, served by GitHub Pages from `main`.
 The app is a home screen plus four apps: **Tasks**, **Recap**, **Quotes**,
 **Shopping** (carts), and two non-tappable placeholders. Home is a fixed
 non-scrolling page — a 25% header (date + the day's quote) over a 75% grid of
-six icons.
+six icons. **Habits** is a fifth app reached from the Tasks hot bar rather than
+the home grid — that was the user's explicit choice, so do not promote it to a
+tile without asking.
 
 An app opens as a **bubble**: a rounded card inset from the viewport edges,
 never full-bleed. `.bubble` is the scroll container, so `.screen-body` is the
@@ -15,11 +17,12 @@ bottom edge rather than a fixed overlay. Sheets are bubbles too, rounded on
 all four corners. Nothing in the app should meet a viewport edge with a
 square corner.
 
-**Markets, Today's Schedule and Habits were removed** from the UI. Their
-storage keys (`markets`, `schedule`, `habits`) are read once at boot, carried
-untouched in `retired`, and included in backups — never written, never reset.
-Habit history in particular is meant to survive for a possible return, so do
-not add them to `resetAll`.
+**Markets, Today's Schedule and the old Habits app were removed** from the UI.
+Their storage keys (`markets`, `schedule`, `habits`) are read once at boot,
+carried untouched in `retired`, and included in backups — never written, never
+reset. The old 4-toggle habit dot history is meant to survive, so do not add
+them to `resetAll`. The Habits feature that came back later is a different
+model under `habitsv2` and must never write to `habits`.
 
 ## Deploy workflow — do this without asking
 
@@ -75,11 +78,16 @@ Report the merge in the summary; do not ask permission for it.
 - **Buckets never change on their own.** Anything that would move a task
   between `today` / `this_week` / `this_month` / `future` must be an explicit
   user action. Date-anchored tasks are offered as suggestions, never moved.
-- **Ranking is total and deterministic:** carry-ins oldest first, then
-  importance, then `createdAt`, then `id`. The final `id` comparison is what
-  stops the list reshuffling between reloads — do not remove it.
-- **Appointments do not affect ranking.** A `dueTime` makes a task a fixed
-  point in the brief; it does not reorder the flexible list.
+- **Ranking is total and deterministic:** a time first (chronological), then
+  carry-ins oldest first, then importance, then `createdAt`, then `id`. The
+  final `id` comparison is what stops the list reshuffling between reloads —
+  do not remove it.
+- **A time leads the day.** Anything anchored to the clock sorts above the
+  flexible work, in clock order, whatever its importance — the user chose this
+  over the old "a time never reorders anything" rule when Habits landed. Only
+  a time that applies *today* counts (`isFixedToday`): a task sitting in
+  `today` but dated next Tuesday does not jump the queue. Other buckets follow
+  the same shape via `timeAnchor`, ordered by date then time.
 - **Tone is flat.** No streaks, badges, praise or guilt. Carry-ins are stated
   by age, never as failure. Generated copy carries no exclamation marks — a
   test asserts this.
@@ -129,9 +137,33 @@ Report the merge in the summary; do not ask permission for it.
   "tap again" used elsewhere. Both are unrecoverable, so the dialog names what
   goes and how much of it. Do not downgrade them to the routine affordance.
 - **Text on a user-chosen colour uses `contrastInk`**, never a fixed ink.
+- **A habit is a rule, not a task.** `generateHabitTasks` mints task
+  instances into `today` on open and at rollover, keyed in a `gen` ledger by
+  habit + slot + day. The ledger is what makes deleting a generated task
+  stick: without it the next open would put it straight back. Saving a habit
+  mints anything it has already missed today, so one added at nine still shows
+  its Wednesday task.
+- **Unfinished habit instances clear at the rollover** (`dropStaleHabitTasks`)
+  rather than carrying in. Yesterday's gym is not today's gym, and a missed
+  routine that piles up week on week turns the list into the scoreboard this
+  app deliberately is not. Ordinary carry-ins are untouched.
+- **Editing a habit never reaches back into tasks it already minted**, and
+  ticking an instance off is just that day. There are assertions for both.
+- **A slot that could never fire is rejected, not stored** — a weekly slot
+  with no days, a dates slot with no dates. A monthly slot on the 31st lands
+  on the last day of a shorter month rather than skipping February.
+- **Days are stored 0–6 from Sunday but always read Mon–Sun** (`weekOrder`).
+  Sorting them numerically for display gives "Sun/Sat", which is wrong.
 - **Reminders are calendar events, not push.** iOS Web Push needs a server
   signing with VAPID keys; this app has no server, and Notification Triggers
   is not in Safari. `buildICS` writes a `VALARM` at `-PT30M`.
+
+The Tasks footer rests as a three-button **hot bar** — Add task, Habits, Brain
+dump — and becomes the quick-add composer when the first is tapped. Opening it
+calls `ReactDOM.flushSync` before `focus()`, because iOS only raises the
+keyboard for a focus that is still inside the tap that asked for it; leave that
+in place. The UI suite's `openAdd()` / `showBar()` helpers exist because the
+input and the two bar buttons are never on screen at the same time.
 
 The Tasks footer shows the running build, read from the live cache name
 rather than a constant, so "which version am I on" is answerable without

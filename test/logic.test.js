@@ -351,11 +351,52 @@ t("appointment fields survive a save/reload round trip", function () {
   assert.strictEqual(out.items[0].dueDate, "2026-09-11");
   assert.strictEqual(out.items[0].dueTime, "10:30");
 });
-t("an appointment does not change bucket or ranking on its own", function () {
+t("an appointment never changes bucket on its own", function () {
+  var appt = QD.applyPatch(task("appt", { bucket: "this_week" }), { dueTime: "07:00" }, TODAY, 1);
+  assert.strictEqual(appt.bucket, "this_week");
+});
+t("a time leads the day, ahead of an untimed must", function () {
   var plain = task("plain", { importance: "must" });
-  var appt = QD.applyPatch(task("appt"), { dueTime: "07:00" }, TODAY, 1);
-  assert.strictEqual(appt.bucket, "today");
-  assert.deepStrictEqual(ids(QD.rankToday([appt, plain], TODAY)), ["plain", "appt"]);
+  var appt = QD.applyPatch(task("appt", { importance: "nice" }), { dueTime: "07:00" }, TODAY, 1);
+  assert.deepStrictEqual(ids(QD.rankToday([plain, appt], TODAY)), ["appt", "plain"]);
+});
+t("timed tasks run in clock order, whatever their importance", function () {
+  var nine = QD.applyPatch(task("nine", { importance: "nice" }), { dueTime: "09:00" }, TODAY, 1);
+  var five = QD.applyPatch(task("five", { importance: "nice" }), { dueTime: "05:00" }, TODAY, 1);
+  var noon = QD.applyPatch(task("noon", { importance: "must" }), { dueTime: "12:00" }, TODAY, 1);
+  assert.deepStrictEqual(ids(QD.rankToday([nine, noon, five], TODAY)),
+    ["five", "nine", "noon"]);
+});
+t("a time beats a carry-in, and the untimed rest keeps the old chain", function () {
+  var old1 = task("carry", { importance: "nice" });
+  old1.firstTodayOn = QD.shiftKey(TODAY, -1);
+  var must = task("must", { importance: "must" });
+  var timed = QD.applyPatch(task("timed", { importance: "nice" }), { dueTime: "06:00" }, TODAY, 1);
+  assert.deepStrictEqual(ids(QD.rankToday([must, old1, timed], TODAY)),
+    ["timed", "carry", "must"]);
+});
+t("a time on another day does not jump today's queue", function () {
+  var plain = task("plain", { importance: "must" });
+  var later = QD.applyPatch(task("later", { importance: "nice" }),
+    { dueDate: QD.shiftKey(TODAY, 3), dueTime: "06:00" }, TODAY, 1);
+  assert.deepStrictEqual(ids(QD.rankToday([later, plain], TODAY)), ["plain", "later"]);
+});
+t("ranking stays a total order once times are in play", function () {
+  var a = QD.applyPatch(task("a"), { dueTime: "08:00" }, TODAY, 1);
+  var b = QD.applyPatch(task("b"), { dueTime: "08:00" }, TODAY, 1);
+  b.createdAt = a.createdAt;
+  var one = ids(QD.rankToday([a, b], TODAY));
+  var two = ids(QD.rankToday([b, a], TODAY));
+  assert.deepStrictEqual(one, two);
+});
+t("other buckets put their timed tasks first too", function () {
+  var plain = task("plain", { bucket: "this_week", importance: "must" });
+  var wed = QD.applyPatch(task("wed", { bucket: "this_week", importance: "nice" }),
+    { dueDate: QD.shiftKey(TODAY, 2), dueTime: "08:00" }, TODAY, 1);
+  var tue = QD.applyPatch(task("tue", { bucket: "this_week", importance: "nice" }),
+    { dueDate: QD.shiftKey(TODAY, 1), dueTime: "08:00" }, TODAY, 1);
+  assert.deepStrictEqual(ids(QD.inBucket([plain, wed, tue], "this_week")),
+    ["tue", "wed", "plain"]);
 });
 
 console.log("\naddedLabel");
@@ -872,6 +913,225 @@ t("reads naturally across the week", function () {
   assert.strictEqual(QD.sinceLabel("2026-09-08", TODAY), "yesterday");
   assert.strictEqual(QD.sinceLabel("2026-09-06", TODAY), "Sunday");
   assert.strictEqual(QD.sinceLabel("2026-08-30", TODAY), "30 Aug");
+});
+
+
+console.log("\nhabit schedules");
+function slot(o) { return QD.makeSlot(o); }
+/* 2026-09-09 is a Wednesday. */
+var WED = "2026-09-09", THU = "2026-09-10", SAT = "2026-09-12", SUN = "2026-09-13";
+t("a weekly slot fires only on its days", function () {
+  var s = slot({ recurrence: "weekly", daysOfWeek: [1, 2, 4], startTime: "05:00" });
+  assert.strictEqual(QD.slotMatches(s, THU), true, "Thursday");
+  assert.strictEqual(QD.slotMatches(s, WED), false, "Wednesday");
+  assert.strictEqual(QD.slotMatches(s, SAT), false, "Saturday");
+});
+t("a dates slot fires only on the dates listed", function () {
+  var s = slot({ recurrence: "dates", specificDates: [SAT, SUN], startTime: "09:00" });
+  assert.strictEqual(QD.slotMatches(s, SAT), true);
+  assert.strictEqual(QD.slotMatches(s, WED), false);
+});
+t("a monthly slot on the 31st still fires in a 30-day month", function () {
+  var s = slot({ recurrence: "monthly", dayOfMonth: 31, startTime: "08:00" });
+  assert.strictEqual(QD.slotMatches(s, "2026-09-30"), true, "Sep has 30 days");
+  assert.strictEqual(QD.slotMatches(s, "2026-10-31"), true, "Oct has 31");
+  assert.strictEqual(QD.slotMatches(s, "2026-10-30"), false);
+  assert.strictEqual(QD.slotMatches(s, "2026-02-28"), true, "Feb falls back to the 28th");
+});
+t("a yearly slot needs both its months and its day", function () {
+  var s = slot({ recurrence: "yearly", monthsOfYear: [8, 9], dayOfMonth: 12, startTime: "10:00" });
+  assert.strictEqual(QD.slotMatches(s, "2026-09-12"), true);
+  assert.strictEqual(QD.slotMatches(s, "2026-08-12"), true);
+  assert.strictEqual(QD.slotMatches(s, "2026-07-12"), false);
+  assert.strictEqual(QD.slotMatches(s, "2026-09-13"), false);
+});
+t("a slot that could never fire is rejected, not stored", function () {
+  assert.strictEqual(slot({ recurrence: "weekly", daysOfWeek: [], startTime: "05:00" }), null);
+  assert.strictEqual(slot({ recurrence: "dates", specificDates: [], startTime: "05:00" }), null);
+  assert.strictEqual(slot({ recurrence: "monthly", startTime: "05:00" }), null);
+  assert.strictEqual(slot({ recurrence: "weekly", daysOfWeek: [1] }), null, "no start time");
+  assert.strictEqual(slot({ recurrence: "yearly", monthsOfYear: [8], startTime: "05:00" }), null);
+});
+t("junk days and months are dropped, and the rest kept", function () {
+  var s = slot({ recurrence: "weekly", daysOfWeek: [9, 1, "2", -3, 1, null], startTime: "05:00" });
+  assert.deepStrictEqual(s.daysOfWeek, [1, 2], "deduped, sorted, in range");
+});
+t("an end time before its start is not a duration", function () {
+  var s = slot({ recurrence: "weekly", daysOfWeek: [1], startTime: "09:00", endTime: "08:00" });
+  assert.strictEqual(s.endTime, null);
+  var ok = slot({ recurrence: "weekly", daysOfWeek: [1], startTime: "09:00", endTime: "17:00" });
+  assert.strictEqual(ok.endTime, "17:00");
+});
+
+console.log("\nhabits: the worked examples");
+var GYM = QD.makeHabit("Gym", { importance: "should", schedule: [
+  { recurrence: "weekly", daysOfWeek: [1, 2, 4], startTime: "05:00" },
+  { recurrence: "weekly", daysOfWeek: [6, 0], startTime: "08:00" }
+] });
+var WORK = QD.makeHabit("Work", { importance: "must", schedule: [
+  { recurrence: "weekly", daysOfWeek: [1, 2, 3, 4, 5], startTime: "09:00", endTime: "17:00" }
+] });
+var RUBBISH = QD.makeHabit("Take out rubbish", { schedule: [
+  { recurrence: "weekly", daysOfWeek: [3], startTime: "08:00" }
+] });
+t("one habit can carry two different times", function () {
+  assert.strictEqual(GYM.schedule.length, 2);
+  assert.strictEqual(QD.habitSlotsOn(GYM, THU)[0].startTime, "05:00", "Thursday is an early one");
+  assert.strictEqual(QD.habitSlotsOn(GYM, SAT)[0].startTime, "08:00", "Saturday is a late one");
+  assert.strictEqual(QD.habitSlotsOn(GYM, WED).length, 0, "no gym on Wednesday");
+});
+t("work keeps its end time", function () {
+  var s = QD.habitSlotsOn(WORK, WED)[0];
+  assert.strictEqual(s.startTime, "09:00");
+  assert.strictEqual(s.endTime, "17:00");
+});
+t("the schedule reads back as a summary", function () {
+  assert.strictEqual(QD.habitSummary(GYM), "Mon/Tue/Thu 05:00, Sat/Sun 08:00");
+  assert.strictEqual(QD.habitSummary(WORK), "Mon/Tue/Wed/Thu/Fri 09:00–17:00");
+  assert.strictEqual(QD.habitSummary(RUBBISH), "Wed 08:00");
+});
+t("a paused habit matches nothing but keeps its schedule", function () {
+  var off = QD.normHabit(Object.assign({}, GYM, { active: false }));
+  assert.deepStrictEqual(QD.habitSlotsOn(off, THU), []);
+  assert.strictEqual(off.schedule.length, 2, "the schedule is still there");
+});
+t("a habit with no workable slot is not a habit", function () {
+  assert.strictEqual(QD.makeHabit("Nothing", { schedule: [] }), null);
+  assert.strictEqual(QD.makeHabit("", { schedule: [{ recurrence: "weekly", daysOfWeek: [1], startTime: "05:00" }] }), null);
+});
+t("nextHabitDay finds the next time it comes round", function () {
+  assert.strictEqual(QD.nextHabitDay(RUBBISH, WED), WED, "today counts");
+  assert.strictEqual(QD.nextHabitDay(RUBBISH, THU), "2026-09-16", "next Wednesday");
+});
+
+console.log("\nhabits: generating today's tasks");
+function habitState(list) {
+  return QD.normHabits({ habits: list, gen: {}, lastGenOn: null });
+}
+t("a matching slot mints a task in today", function () {
+  var out = QD.generateHabitTasks(habitState([GYM, RUBBISH]), [], WED, 1000);
+  assert.strictEqual(out.added.length, 1, "only rubbish runs on a Wednesday");
+  var t0 = out.added[0];
+  assert.strictEqual(t0.title, "Take out rubbish");
+  assert.strictEqual(t0.bucket, "today");
+  assert.strictEqual(t0.dueDate, WED);
+  assert.strictEqual(t0.dueTime, "08:00");
+  assert.strictEqual(t0.habitId, RUBBISH.id);
+});
+t("a habit with two slots on one day mints both", function () {
+  var both = QD.makeHabit("Pills", { schedule: [
+    { recurrence: "weekly", daysOfWeek: [3], startTime: "08:00" },
+    { recurrence: "weekly", daysOfWeek: [3], startTime: "20:00" }
+  ] });
+  var out = QD.generateHabitTasks(habitState([both]), [], WED, 1000);
+  assert.strictEqual(out.added.length, 2);
+  assert.deepStrictEqual(out.added.map(function (x) { return x.dueTime; }), ["08:00", "20:00"]);
+});
+t("the habit's importance rides along", function () {
+  var out = QD.generateHabitTasks(habitState([WORK]), [], WED, 1000);
+  assert.strictEqual(out.added[0].importance, "must");
+  assert.strictEqual(out.added[0].endTime, "17:00");
+});
+t("opening the app twice does not mint it twice", function () {
+  var st = habitState([RUBBISH]);
+  var one = QD.generateHabitTasks(st, [], WED, 1000);
+  var two = QD.generateHabitTasks(one.habits, one.items, WED, 2000);
+  assert.strictEqual(two.added.length, 0);
+  assert.strictEqual(two.items.length, 1);
+});
+t("deleting a generated task does not bring it back on the next open", function () {
+  var st = habitState([RUBBISH]);
+  var one = QD.generateHabitTasks(st, [], WED, 1000);
+  var afterDelete = [];
+  var two = QD.generateHabitTasks(one.habits, afterDelete, WED, 2000);
+  assert.deepStrictEqual(two.added, [], "the deletion sticks for the day");
+});
+t("a paused habit mints nothing", function () {
+  var off = QD.normHabit(Object.assign({}, RUBBISH, { active: false }));
+  var out = QD.generateHabitTasks(habitState([off]), [], WED, 1000);
+  assert.deepStrictEqual(out.added, []);
+});
+t("batch minting staggers createdAt so the order holds", function () {
+  var many = QD.makeHabit("Rounds", { schedule: [
+    { recurrence: "weekly", daysOfWeek: [3], startTime: "07:00" },
+    { recurrence: "weekly", daysOfWeek: [3], startTime: "12:00" },
+    { recurrence: "weekly", daysOfWeek: [3], startTime: "18:00" }
+  ] });
+  var out = QD.generateHabitTasks(habitState([many]), [], WED, 1000);
+  var stamps = out.added.map(function (x) { return x.createdAt; });
+  assert.strictEqual(new Set(stamps).size, 3, "no two share a millisecond");
+});
+t("a new day mints again", function () {
+  var one = QD.generateHabitTasks(habitState([WORK]), [], WED, 1000);
+  var two = QD.generateHabitTasks(one.habits, one.items, THU, 2000);
+  assert.strictEqual(two.added.length, 1, "Thursday is a work day too");
+});
+t("editing a schedule leaves tasks already minted alone", function () {
+  var one = QD.generateHabitTasks(habitState([RUBBISH]), [], WED, 1000);
+  var moved = QD.normHabit(Object.assign({}, RUBBISH, {
+    schedule: [{ id: RUBBISH.schedule[0].id, recurrence: "weekly", daysOfWeek: [5], startTime: "18:00" }]
+  }));
+  var two = QD.generateHabitTasks(
+    { habits: [moved], gen: one.habits.gen, lastGenOn: null }, one.items, WED, 2000);
+  assert.strictEqual(two.items[0].dueTime, "08:00", "today's instance is untouched");
+  assert.strictEqual(two.added.length, 0, "and Friday's does not arrive early");
+});
+
+console.log("\nhabits: instances are per-day");
+t("ticking an instance off does not touch the habit", function () {
+  var out = QD.generateHabitTasks(habitState([RUBBISH]), [], WED, 1000);
+  var done = Object.assign({}, out.items[0], { completedAt: ms(WED, 9) });
+  assert.strictEqual(QD.normHabits(out.habits).habits[0].active, true);
+  assert.strictEqual(QD.habitSlotsOn(QD.normHabits(out.habits).habits[0], "2026-09-16").length, 1);
+  assert.ok(done.completedAt, "only this occurrence is done");
+});
+t("an unfinished instance clears at the rollover rather than piling up", function () {
+  var out = QD.generateHabitTasks(habitState([RUBBISH]), [], WED, 1000);
+  var state = { version: 2, items: out.items, doneYesterday: 0, lastRollOn: WED };
+  var rolled = QD.rollDay(state, THU);
+  assert.deepStrictEqual(rolled.items, [], "yesterday's rubbish is not today's rubbish");
+});
+t("the rollover leaves ordinary carry-ins exactly as they were", function () {
+  var plain = task("plain");
+  var out = QD.generateHabitTasks(habitState([RUBBISH]), [plain], WED, 1000);
+  var rolled = QD.rollDay(
+    { version: 2, items: out.items, doneYesterday: 0, lastRollOn: WED }, THU);
+  assert.deepStrictEqual(ids(rolled.items), ["plain"]);
+});
+t("habit provenance survives a save and reload", function () {
+  var out = QD.generateHabitTasks(habitState([WORK]), [], WED, 1000);
+  var back = QD.migrate({ version: 2, items: out.items, doneYesterday: 0, lastRollOn: WED }, WED);
+  assert.strictEqual(back.items[0].habitId, WORK.id);
+  assert.strictEqual(back.items[0].genOn, WED);
+  assert.strictEqual(back.items[0].endTime, "17:00");
+  assert.strictEqual(QD.isHabitTask(back.items[0]), true);
+});
+t("a hand-made task is never mistaken for a habit instance", function () {
+  assert.strictEqual(QD.isHabitTask(task("plain")), false);
+});
+t("generated tasks lead the day in clock order", function () {
+  var out = QD.generateHabitTasks(habitState([GYM, WORK]), [task("plain", { importance: "must" })], THU, 1000);
+  assert.deepStrictEqual(
+    QD.rankToday(out.items, THU).map(function (x) { return x.title; }),
+    ["Gym", "Work", "plain"]);
+});
+
+console.log("\nhabits: storage hygiene");
+t("junk habits and slots are dropped on load", function () {
+  var out = QD.normHabits({ habits: [null, 42, { name: "" }, { name: "O", schedule: [] }], gen: null });
+  assert.deepStrictEqual(out.habits, []);
+  assert.deepStrictEqual(out.gen, {});
+});
+t("empty and junk input give a valid empty state", function () {
+  [null, undefined, 42, "nope", {}].forEach(function (junk) {
+    var out = QD.normHabits(junk);
+    assert.deepStrictEqual(out.habits, []);
+    assert.strictEqual(out.lastGenOn, null);
+  });
+});
+t("a junk date in the ledger is discarded, not trusted", function () {
+  var out = QD.normHabits({ habits: [], gen: { "a:b": "nope", "c:d": WED } });
+  assert.deepStrictEqual(out.gen, { "c:d": WED });
 });
 
 console.log("\n" + pass + " passed, " + fail + " failed\n");
