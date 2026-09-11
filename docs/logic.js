@@ -222,6 +222,14 @@
       next.notTodayOn = null;
       next.firstTodayOn = changes.bucket === "today" ? today : null;
     }
+    /* Clearing a date hands the task back to its manual bucket, set to
+       wherever the date had been putting it — otherwise it would appear to
+       jump elsewhere, or vanish from the list being looked at. */
+    if (changes.dueDate !== undefined && !next.dueDate && validDate(task.dueDate)) {
+      next.bucket = bucketForDate(task.dueDate, today);
+      next.firstTodayOn = next.bucket === "today" ? today : null;
+      next.notTodayOn = null;
+    }
     next.updatedAt = typeof now === "number" ? now : Date.now();
     return next;
   }
@@ -243,8 +251,11 @@
 
   /* ---------- ranking ---------- */
   function isOpen(t) { return !t.completedAt; }
+  /* Only undated tasks carry in. A dated one that is late says so as overdue,
+     and saying both would label the same fact twice. */
   function isCarryIn(t, today) {
-    return t.bucket === "today" && isOpen(t) && !!t.firstTodayOn && t.firstTodayOn < today;
+    return !validDate(t.dueDate) && effectiveBucket(t, today) === "today" &&
+      isOpen(t) && !!t.firstTodayOn && t.firstTodayOn < today;
   }
   function impRank(t) {
     var r = IMP_ORDER[t.importance];
@@ -259,18 +270,20 @@
     var t = validTime(v);
     return t ? (+t.slice(0, 2)) * 60 + (+t.slice(3, 5)) : null;
   }
-  /* Which of today's three bands a task sits in:
-       0  a time that is due, overdue, or close enough to matter — the top
-       1  the flexible work, ranked as it always was
-       2  a time still further off than the lead-in — the bottom
+  /* Which of today's bands a task sits in:
+       0  already late — the day it was due has gone
+       1  a time today that is due or close enough to matter
+       2  the flexible work, ranked as it always was
+       3  a time today still further off than the lead-in — the bottom
      Without a clock (`nowMin` omitted) there is no "yet", so every timed task
-     leads. That keeps callers that do not care about the time of day — the
-     brief, the tests for the other rules — on the old two-band behaviour. */
+     leads and band 3 stays empty. That keeps callers which do not care about
+     the time of day — the brief, the tests for the other rules — as they were. */
   function todayBand(t, today, nowMin) {
+    if (isOverdue(t, today)) return 0;
     var at = isFixedToday(t, today) ? minutesOfTime(t.dueTime) : null;
-    if (at === null) return 1;
-    if (typeof nowMin !== "number") return 0;
-    return at - nowMin <= LEAD_MINUTES ? 0 : 2;
+    if (at === null) return 2;
+    if (typeof nowMin !== "number") return 1;
+    return at - nowMin <= LEAD_MINUTES ? 1 : 3;
   }
 
   /* Deterministic: every comparison ends in a total order, so the list never
@@ -283,7 +296,13 @@
     return function (a, b) {
       var ba = todayBand(a, today, nowMin), bb = todayBand(b, today, nowMin);
       if (ba !== bb) return ba - bb;
-      if (ba !== 1 && a.dueTime !== b.dueTime) return a.dueTime < b.dueTime ? -1 : 1;
+      /* Late things oldest first; a late one need not carry a time at all. */
+      if (ba === 0 && a.dueDate !== b.dueDate) return a.dueDate < b.dueDate ? -1 : 1;
+      if (ba !== 2 && a.dueTime !== b.dueTime) {
+        if (!a.dueTime) return 1;
+        if (!b.dueTime) return -1;
+        return a.dueTime < b.dueTime ? -1 : 1;
+      }
       var ca = isCarryIn(a, today), cb = isCarryIn(b, today);
       if (ca !== cb) return ca ? -1 : 1;
       if (ca && cb && a.firstTodayOn !== b.firstTodayOn) return a.firstTodayOn < b.firstTodayOn ? -1 : 1;
@@ -294,18 +313,20 @@
     };
   }
   function rankToday(items, today, nowMin) {
-    return items.filter(function (t) { return t.bucket === "today" && isOpen(t); })
-                .slice().sort(compareToday(today, nowMin));
+    return items.filter(function (t) {
+      return effectiveBucket(t, today) === "today" && isOpen(t);
+    }).slice().sort(compareToday(today, nowMin));
   }
   /* True while a timed task is still waiting its turn at the bottom. The row
      uses this to sit quieter than the work actually in front of you. */
-  function isWaiting(t, today, nowMin) { return todayBand(t, today, nowMin) === 2; }
+  function isWaiting(t, today, nowMin) { return todayBand(t, today, nowMin) === 3; }
   /* Tasks ticked off today, in the order they were ticked. They stay on
      screen, struck through, until the midnight rollover clears them — a tap
      is easy to make by accident and must be easy to take back. */
   function completedInBucket(items, bucket, today) {
     return items.filter(function (t) {
-      return t.bucket === bucket && !!t.completedAt && msToKey(t.completedAt) === today;
+      return effectiveBucket(t, today) === bucket &&
+        !!t.completedAt && msToKey(t.completedAt) === today;
     }).slice().sort(function (a, b) {
       if (a.completedAt !== b.completedAt) return a.completedAt - b.completedAt;
       return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
@@ -320,8 +341,10 @@
     if (!time) return null;
     return (validDate(t.dueDate) || "9999-99-99") + " " + time;
   }
-  function inBucket(items, bucket) {
-    return items.filter(function (t) { return t.bucket === bucket && isOpen(t); })
+  function inBucket(items, bucket, today) {
+    return items.filter(function (t) {
+      return effectiveBucket(t, today || todayKey()) === bucket && isOpen(t);
+    })
       .slice().sort(function (a, b) {
         var wa = timeAnchor(a), wb = timeAnchor(b);
         if (!!wa !== !!wb) return wa ? -1 : 1;
@@ -337,7 +360,7 @@
      A timed task in `today` is a fixed point: the day bends around it.
      Everything else in `today` is flexible and keeps the normal ranking. */
   function isFixedToday(t, today) {
-    return t.bucket === "today" && isOpen(t) && !!validTime(t.dueTime) &&
+    return effectiveBucket(t, today) === "today" && isOpen(t) && !!validTime(t.dueTime) &&
       (!t.dueDate || t.dueDate === today);
   }
   function fixedPoints(items, today) {
@@ -349,34 +372,23 @@
   }
   function flexibleToday(items, today) {
     return items.filter(function (t) {
-      return t.bucket === "today" && isOpen(t) && !isFixedToday(t, today);
+      return effectiveBucket(t, today) === "today" && isOpen(t) && !isFixedToday(t, today);
     }).slice().sort(compareToday(today));
   }
 
-  /* ---------- suggestions ---------- */
-  /* Tasks dated today but filed elsewhere. Surfaced every morning regardless
-     of how full today is — a dated thing is a fact about the day, not filler.
-     Never moved automatically; the user accepts them. */
-  function pickAnchored(items, today) {
-    return items.filter(function (t) {
-      return t.bucket !== "today" && isOpen(t) &&
-        t.dueDate === today && t.notTodayOn !== today;
-    }).slice().sort(function (a, b) {
-      var at = validTime(a.dueTime), bt = validTime(b.dueTime);
-      if (at && bt && at !== bt) return at < bt ? -1 : 1;
-      if (at && !bt) return -1;
-      if (bt && !at) return 1;
-      if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
-      return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
-    });
-  }
+  /* ---------- suggestions ----------
+     There is no longer an "anchored" case to surface. A task dated today is
+     *in* today by definition now, so the old pickAnchored — which offered
+     dated tasks filed elsewhere for the user to accept — has nothing left to
+     find. Suggestions are for undated work only. */
   function pickSuggestions(items, today) {
     var open = rankToday(items, today);
     if (open.length >= 3) return [];
     function from(bucket) {
       var pool = items.filter(function (t) {
-        return t.bucket === bucket && isOpen(t) && t.notTodayOn !== today &&
-          t.dueDate !== today;   /* dated today: shown as an anchor instead */
+        return effectiveBucket(t, today) === bucket && isOpen(t) &&
+          t.notTodayOn !== today && !validDate(t.dueDate);
+          /* a dated task is already wherever its date puts it */
       });
       return ["must", "should"].reduce(function (acc, imp) {
         return acc.concat(pool.filter(function (t) { return t.importance === imp; })
@@ -396,7 +408,7 @@
     prefs = prefs || {};
     if (prefs.lastStaleAskOn && daysBetween(prefs.lastStaleAskOn, today) < 7) return null;
     var candidates = items.filter(function (t) {
-      if (t.bucket !== "this_week" || !isOpen(t)) return false;
+      if (effectiveBucket(t, today) !== "this_week" || !isOpen(t)) return false;
       if (t.staleAskedOn && daysBetween(t.staleAskedOn, today) < 7) return false;
       return daysBetween(msToKey(t.updatedAt || t.createdAt), today) >= 10;
     }).sort(function (a, b) {
@@ -505,12 +517,51 @@
     if (delta === 0) delta = 7;
     return shiftKey(today, delta);
   }
+  /* The week runs Monday to Sunday. Nothing in the app had a week boundary
+     before this — sinceLabel and the recap both use rolling seven-day windows
+     — so there is no Sunday-first convention to contradict, and this matches
+     the Mon-first order the habit picker already reads in. */
+  function startOfWeek(key) {
+    var d = keyToDate(key);
+    return shiftKey(key, -((d.getDay() + 6) % 7));   /* Sun 0 -> 6, Mon 1 -> 0 */
+  }
+  function nextWeekStart(key) { return shiftKey(startOfWeek(key), 7); }
+  function monthEnd(key) {
+    var d = keyToDate(key);
+    return dayKey(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+  }
+  /* Calendar week, then calendar month. The cascade order matters: a week
+     that runs past the end of the month keeps its own days, so a Thursday
+     that happens to be the 2nd of next month is still "this week". */
   function bucketForDate(date, today) {
-    var n = daysBetween(today, date);
-    if (n <= 0) return "today";
-    if (n <= 7) return "this_week";
-    if (n <= 31) return "this_month";
+    var d = validDate(date);
+    var t = validDate(today) || todayKey();
+    if (!d || d <= t) return "today";      /* today, and anything already late */
+    if (d < nextWeekStart(t)) return "this_week";
+    if (d <= monthEnd(t)) return "this_month";
     return "future";
+  }
+
+  /* A date is the single source of truth for where a task sits. The manual
+     bucket is only consulted when there is no date, so a stale bucket can
+     never contradict one. Computed at read time, which is what lets a task
+     drift Future -> This month -> This week -> Today on its own, with nothing
+     to migrate and no nightly job. */
+  function effectiveBucket(t, today) {
+    if (!t) return "today";
+    var d = validDate(t.dueDate);
+    if (d) return bucketForDate(d, today);
+    return BUCKETS.indexOf(t.bucket) >= 0 ? t.bucket : "today";
+  }
+  function isOverdue(t, today) {
+    var d = validDate(t && t.dueDate);
+    return !!d && d < today && isOpen(t);
+  }
+  /* "due yesterday" / "due Tuesday" / "due 3 Sep" — stated, never scolded. */
+  function overdueLabel(t, today) {
+    var d = validDate(t && t.dueDate);
+    if (!d || d >= today) return "";
+    return "due " + sinceLabel(d, today);
   }
   function tidy(text) {
     return String(text)
@@ -1169,7 +1220,8 @@
 
   function allDoneLine(items, today) {
     var hadAny = items.some(function (t) {
-      return t.bucket === "today" && t.completedAt && msToKey(t.completedAt) === today;
+      return effectiveBucket(t, today) === "today" &&
+        t.completedAt && msToKey(t.completedAt) === today;
     });
     return hadAny ? "Everything on today's list is done." : "Nothing on today's list.";
   }
@@ -1185,13 +1237,15 @@
     makeTask: makeTask, normTask: normTask, migrate: migrate, rollDay: rollDay,
     applyPatch: applyPatch,
     isOpen: isOpen, isCarryIn: isCarryIn, compareToday: compareToday,
+    effectiveBucket: effectiveBucket, isOverdue: isOverdue, overdueLabel: overdueLabel,
+    startOfWeek: startOfWeek, nextWeekStart: nextWeekStart, monthEnd: monthEnd,
     rankToday: rankToday, inBucket: inBucket,
     completedInBucket: completedInBucket,
     pickSuggestions: pickSuggestions, pickStale: pickStale,
     isFixedToday: isFixedToday, fixedPoints: fixedPoints, flexibleToday: flexibleToday,
     LEAD_MINUTES: LEAD_MINUTES, minutesOfTime: minutesOfTime,
     todayBand: todayBand, isWaiting: isWaiting,
-    pickAnchored: pickAnchored, planLine: planLine, buildICS: buildICS,
+    planLine: planLine, buildICS: buildICS,
     parseTaskLine: parseTaskLine, parseBrainDump: parseBrainDump,
     DEFAULT_QUOTES: DEFAULT_QUOTES, normQuotes: normQuotes, activeQuotes: activeQuotes,
     quoteForDay: quoteForDay,

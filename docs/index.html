@@ -198,6 +198,25 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 .row.waiting .tickbtn{opacity:.72}
 .row.waiting:active .txt,.row.waiting:focus-within .txt{color:var(--ink)}
 
+/* Running late. Warm, like everything else here — the palette has no red in
+   it, and a task running late is a fact about the day, not a failure state. */
+.latetag{
+  display:inline-block;margin-left:.5rem;font-size:.6875rem;
+  color:var(--accent);border:1px solid var(--line-2);border-radius:999px;
+  padding:.0625rem .4375rem;vertical-align:1px;white-space:nowrap;
+}
+.row.late .tickbtn{color:var(--accent)}
+.row.done .latetag{display:none}
+
+/* The bucket a date has decided, in place of the manual picker. */
+.setbydate{
+  display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap;
+  background:var(--ground);border:1px solid var(--line);border-radius:12px;
+  padding:.625rem .875rem;min-height:48px;
+}
+.sbd-name{font-size:.9375rem;color:var(--ink)}
+.sbd-why{font-size:.75rem;color:var(--ink-3)}
+
 /* ---- the hot bar: the Tasks footer at rest ---- */
 .hotbar{
   max-width:var(--wrap);margin:0 auto;display:flex;gap:.5rem;align-items:stretch;

@@ -214,6 +214,10 @@
     var due = QD.dueLabel(task.dueDate, task.dueTime, today);
     if (due && task.endTime) due = due.replace(task.dueTime, task.dueTime + "\u2013" + task.endTime);
     var fromHabit = QD.isHabitTask(task);
+    var late = QD.isOverdue(task, today);
+    /* When something is late the tag states the day it was due, so the usual
+       due line would say the same thing twice. Keep only the time there. */
+    if (late) due = QD.dueLabel(null, task.dueTime, today);
     /* Still hours off: on the list, but not asking to be read yet. */
     var waiting = QD.isWaiting(task, today, props.now);
 
@@ -250,7 +254,7 @@
     return div({ className: "rowwrap" + (offset < -8 ? " sliding" : "") },
       div({
         className: "row" + (done ? " done" : "") + (carry ? " carry" : "") +
-          (waiting ? " waiting" : ""),
+          (waiting ? " waiting" : "") + (late ? " late" : ""),
         style: {
           transform: "translateX(" + offset + "px)",
           transition: dragging.current ? "none" : "transform .18s ease"
@@ -278,6 +282,10 @@
               "aria-label": "From a habit" }, icon(I_REPEAT, 13)) : null,
             task.title,
             due ? span({ className: "duetag" }, due) : null,
+            /* Stated by age, the same way a carry-in is. A thing running late
+               is a fact about the day, not a verdict on the person. */
+            late && !done ? span({ className: "latetag" },
+              QD.overdueLabel(task, today)) : null,
             carry ? span({ className: "carrytag" }, "since " + QD.sinceLabel(task.firstTodayOn, today)) : null,
             task.notes ? span({ className: "notes" }, task.notes) : null)),
         button({
@@ -307,6 +315,12 @@
     var s6 = useState(!!task.dueDate), onDate = s6[0], setOnDate = s6[1];
     var s7 = useState(task.dueDate || props.today), date = s7[0], setDate = s7[1];
     var s8 = useState(!!task.dueTime), onTime = s8[0], setOnTime = s8[1];
+    /* Turning the date off hands control back to the chips, pre-set to where
+       the date had the task, so the picker opens on the right answer. */
+    function toggleDate(on) {
+      if (!on) setBucket(QD.bucketForDate(date, props.today));
+      setOnDate(on);
+    }
     var s9 = useState(task.dueTime || "09:00"), time = s9[0], setTime = s9[1];
     var clean = title.trim();
 
@@ -358,12 +372,18 @@
 
       div({ className: "sheetfield" },
         span({ className: "fieldlabel" }, "When"),
-        h(Chips, { label: "Bucket", options: BUCKET_OPTS, value: bucket, onChange: setBucket }),
-        !isNew && bucket !== task.bucket && bucket !== "today"
+        /* A date is the only source of truth once it is set, so the manual
+           picker goes away rather than sitting there able to contradict it. */
+        onDate
+          ? div({ className: "setbydate" },
+              span({ className: "sbd-name" }, QD.BUCKET_LABEL[QD.bucketForDate(date, props.today)]),
+              span({ className: "sbd-why" }, "set by the date"))
+          : h(Chips, { label: "Bucket", options: BUCKET_OPTS, value: bucket, onChange: setBucket }),
+        !isNew && !onDate && bucket !== task.bucket && bucket !== "today"
           ? span({ className: "fieldnote" }, "Moves off today's list.")
           : null,
         div({ className: "togglerow" },
-          h(Toggle, { on: onDate, label: "Date", onChange: setOnDate }),
+          h(Toggle, { on: onDate, label: "Date", onChange: toggleDate }),
           onDate ? input({
             className: "field stamp", type: "date", value: date, "aria-label": "Date",
             onChange: function (e) { setDate(e.target.value); }
@@ -374,10 +394,14 @@
             className: "field stamp", type: "time", value: time, "aria-label": "Time",
             onChange: function (e) { setTime(e.target.value); }
           }) : null),
-        onDate || onTime
+        onDate
           ? span({ className: "fieldnote" },
+              QD.bucketForDate(date, props.today) === "today" && date < props.today
+                ? "A date in the past keeps the task on today, marked as late."
+                : "The date decides where this sits, and moves it along on its own.")
+          : (onTime ? span({ className: "fieldnote" },
               "Shown on the task. It stays in " + QD.BUCKET_LABEL[bucket].toLowerCase() + ".")
-          : null,
+            : null),
         onTime && !isNew ? div({ className: "remindrow" },
           button({
             className: "btn small", type: "button",
@@ -406,7 +430,6 @@
       return QD.completedInBucket(items, "today", today);
     }, [items, today]);
     var suggestions = useMemo(function () { return QD.pickSuggestions(items, today); }, [items, today]);
-    var anchored = useMemo(function () { return QD.pickAnchored(items, today); }, [items, today]);
     var fixed = useMemo(function () { return QD.fixedPoints(items, today); }, [items, today]);
     var plan = useMemo(function () { return QD.planLine(items, today); }, [items, today]);
     var stale = useMemo(function () { return QD.pickStale(items, today, props.prefs); }, [items, today, props.prefs]);
@@ -454,26 +477,6 @@
       doneToday.length ? section({ className: "sec" },
         h(Eyebrow, { title: "Done today" }),
         div({ className: "tasks" }, doneToday.map(row))) : null,
-
-      anchored.length ? section({ className: "sec" },
-        h(Eyebrow, { title: "Dated today" }),
-        p({ className: "seclead" },
-          anchored.length === 1
-            ? "This is dated today but filed under " +
-              QD.BUCKET_LABEL[anchored[0].bucket].toLowerCase() + "."
-            : "These are dated today but filed elsewhere."),
-        anchored.map(function (t) {
-          var due = QD.dueLabel(t.dueDate, t.dueTime, today);
-          return div({ className: "suggest", key: t.id },
-            div({ className: "sg-title" },
-              t.importance === "must" ? span({ className: "mustdot" }) : null, t.title,
-              due ? span({ className: "duetag" }, due) : null),
-            div({ className: "sg-acts" },
-              button({ className: "btn small primary",
-                onClick: function () { props.onPromote(t.id); } }, "Add to today"),
-              button({ className: "btn small",
-                onClick: function () { props.onNotToday(t.id); } }, "Not today")));
-        })) : null,
 
       suggestions.length ? section({ className: "sec" },
         h(Eyebrow, { title: "Not on today's list yet" }),
@@ -1859,7 +1862,7 @@
             ["this_week", "this_month", "future"].map(function (b) {
               return h(BucketSection, {
                 key: b, label: QD.BUCKET_LABEL[b], today: today,
-                items: QD.inBucket(tasks.items, b),
+                items: QD.inBucket(tasks.items, b, today),
                 done: QD.completedInBucket(tasks.items, b, today),
                 onToggle: toggleTask, onDelete: deleteTask, onOptions: setEditingId
               });
