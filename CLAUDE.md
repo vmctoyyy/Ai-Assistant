@@ -188,7 +188,24 @@ dump — and becomes the quick-add composer when the first is tapped. Opening it
 calls `ReactDOM.flushSync` before `focus()`, because iOS only raises the
 keyboard for a focus that is still inside the tap that asked for it; leave that
 in place. The UI suite's `openAdd()` / `showBar()` helpers exist because the
-input and the two bar buttons are never on screen at the same time.
+input and the two bar buttons are never on screen at the same time; `showBar()`
+retries, because the composer folds itself away on an empty input and the close
+button can detach mid-tap.
+
+**`TaskSheet` builds a task as well as edits one**, under `isNew`. The quick
+add stays the fast path — type, Add, keyboard holds for the next one — and its
+"Date, time & note" link hands whatever is already typed to the full sheet, so
+nothing is lost and nobody has to add a task and go back in to say when it is.
+In `isNew` the sheet drops what cannot apply yet: no delete, no "added" line,
+no reminder (`buildICS` reads the *stored* title, so exporting an event for a
+task that does not exist would carry the wrong one). Do not duplicate the
+date/time/note controls into the composer — it sits above the keyboard and
+there is not room; the sheet is where that density belongs.
+
+Note the sheet's confirm button is labelled "Add task" in `isNew`, the same
+accessible name as the composer's own Add button. They are never both reachable
+(the sheet is `aria-modal`), but UI tests must scope to `.sheet` or the locator
+is ambiguous.
 
 The Tasks footer shows the running build, read from the live cache name
 rather than a constant, so "which version am I on" is answerable without

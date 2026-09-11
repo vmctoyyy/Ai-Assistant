@@ -320,10 +320,15 @@
       props.onClose();
     }
 
+    /* The same sheet builds a task and edits one. A task being made has
+       nothing to delete, no history to report, and no calendar event worth
+       exporting before it exists. */
+    var isNew = !!props.isNew;
+
     return h(Sheet, {
-      title: "Task options", onClose: props.onClose, footerSpread: true,
+      title: isNew ? "New task" : "Task options", onClose: props.onClose, footerSpread: true,
       footer: [
-        button({
+        isNew ? span({ key: "del" }) : button({
           key: "del",
           className: "linkbtn danger" + (armed ? " armed" : ""),
           onClick: function () {
@@ -333,7 +338,8 @@
         }, armed ? "Tap again to delete" : "Delete"),
         div({ key: "acts", style: { display: "flex", gap: ".5rem" } },
           button({ className: "btn", onClick: props.onClose }, "Cancel"),
-          button({ className: "btn primary", disabled: !clean, onClick: save }, "Save"))
+          button({ className: "btn primary", disabled: !clean, onClick: save },
+            isNew ? "Add task" : "Save"))
       ]
     },
       div({ className: "sheetfield" },
@@ -353,7 +359,7 @@
       div({ className: "sheetfield" },
         span({ className: "fieldlabel" }, "When"),
         h(Chips, { label: "Bucket", options: BUCKET_OPTS, value: bucket, onChange: setBucket }),
-        bucket !== task.bucket && bucket !== "today"
+        !isNew && bucket !== task.bucket && bucket !== "today"
           ? span({ className: "fieldnote" }, "Moves off today's list.")
           : null,
         div({ className: "togglerow" },
@@ -372,7 +378,7 @@
           ? span({ className: "fieldnote" },
               "Shown on the task. It stays in " + QD.BUCKET_LABEL[bucket].toLowerCase() + ".")
           : null,
-        onTime ? div({ className: "remindrow" },
+        onTime && !isNew ? div({ className: "remindrow" },
           button({
             className: "btn small", type: "button",
             onClick: function () { props.onRemind({ dueDate: onDate ? date : null, dueTime: time }); }
@@ -389,7 +395,7 @@
           onChange: function (e) { setNotes(e.target.value); }
         })),
 
-      p({ className: "addedline" }, QD.addedLabel(task.createdAt, props.today)));
+      isNew ? null : p({ className: "addedline" }, QD.addedLabel(task.createdAt, props.today)));
   }
 
   /* ---------- morning brief ---------- */
@@ -1230,6 +1236,8 @@
        composer on demand. */
     var sAdd = useState(false), adding = sAdd[0], setAdding = sAdd[1];
     var addRef = useRef(null);
+    /* A task being built in the full sheet, before it exists. */
+    var sD = useState(null), draft = sD[0], setDraft = sD[1];
     var s10 = useState("today"), addBucket = s10[0], setAddBucket = s10[1];
     var s11 = useState("should"), addImp = s11[0], setAddImp = s11[1];
     var s12 = useState(false), dumping = s12[0], setDumping = s12[1];
@@ -1666,6 +1674,21 @@
       setAdding(false); setComposerOpen(false);
       setQuick(""); setAddBucket("today"); setAddImp("should");
     }
+    /* Hand the half-typed task to the full sheet rather than making the user
+       add it and then go back in to say when it is. */
+    function openDetails() {
+      setDraft(QD.makeTask(quick.trim(), {
+        bucket: addBucket, importance: addImp, today: today
+      }));
+    }
+    function saveDraft(changes) {
+      commit(tasks.items.concat([QD.makeTask(changes.title, {
+        id: draft.id, bucket: changes.bucket, importance: changes.importance,
+        notes: changes.notes, dueDate: changes.dueDate, dueTime: changes.dueTime,
+        today: today, now: Date.now()
+      })]));
+      closeAdd();
+    }
 
     var hotbar = div({ className: "hotbar" },
       button({ className: "hot", type: "button", onClick: openAdd },
@@ -1681,7 +1704,15 @@
       adding ? h(React.Fragment, null,
         composerOpen ? div({ className: "compchips" },
           h(Chips, { label: "Bucket", options: BUCKET_OPTS, value: addBucket, onChange: setAddBucket }),
-          h(Chips, { label: "Importance", options: IMP_OPTS, value: addImp, onChange: setAddImp })) : null,
+          h(Chips, { label: "Importance", options: IMP_OPTS, value: addImp, onChange: setAddImp }),
+          div({ className: "compmore" },
+            button({
+              className: "linkbtn", type: "button",
+              /* Same reason the chips do it: without this the input blurs,
+                 the row unmounts, and the tap lands on nothing. */
+              onMouseDown: function (e) { e.preventDefault(); },
+              onClick: openDetails
+            }, "Date, time \u0026 note"))) : null,
         h("form", {
           className: "inner",
           onSubmit: function (e) {
@@ -1733,7 +1764,15 @@
       onRemind: function (when) { remind(editingTask, when); }
     }) : null;
 
+    var draftSheet = draft ? h(TaskSheet, {
+      key: "draft", task: draft, today: today, isNew: true,
+      onClose: function () { setDraft(null); },
+      onSave: saveDraft,
+      onDelete: function () {}, onRemind: function () {}
+    }) : null;
+
     var overlays = h(React.Fragment, null,
+      draftSheet,
       dumping ? h(BrainDump, { onClose: function () { setDumping(false); },
         today: today, onAdd: addParsed }) : null,
       backing ? h(Backup, { onClose: function () { setBacking(false); },

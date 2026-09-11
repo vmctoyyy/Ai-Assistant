@@ -29,6 +29,13 @@ const settled = async (pg) => {
   await pg.evaluate(() => Promise.all(
     document.getAnimations().map(a => a.finished.catch(() => {}))));
 };
+/* Controlled date/time/number/colour inputs ignore a plainly assigned value —
+   React never sees it — so drive them the way a real pick would. */
+const setNativeOn = (pg, sel, v) => pg.locator(sel).first().evaluate((el, v) => {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  setter.call(el, v);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+}, v);
 /* The Tasks footer rests as a three-button bar, so anything that wants the
    quick-add input has to open it first. Idempotent: already open is fine. */
 const openAdd = async (pg) => {
@@ -37,12 +44,16 @@ const openAdd = async (pg) => {
     await pg.waitForSelector('.composer input', { timeout: 5000 });
   }
 };
-/* ...and the reverse, for the two bar buttons that are only there at rest. */
+/* ...and the reverse, for the two bar buttons that are only there at rest.
+   The composer also folds itself away on an empty input after a moment, so
+   the close button can detach mid-tap — retry rather than fail on the race. */
 const showBar = async (pg) => {
-  if (await pg.locator('.hotbar').count() === 0) {
-    await pg.locator('.composer .closebtn').tap();
-    await pg.waitForSelector('.hotbar', { timeout: 5000 });
+  for (let i = 0; i < 4; i++) {
+    if (await pg.locator('.hotbar').count()) return;
+    await pg.locator('.composer .closebtn').tap({ timeout: 3000 }).catch(() => {});
+    await pg.waitForTimeout(300);
   }
+  await pg.waitForSelector('.hotbar', { timeout: 5000 });
 };
 /* Expand a collapsed section without collapsing an already-open one — an
    earlier step may have left it either way. */
@@ -163,6 +174,77 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
     await pg.locator(`button[aria-label="Delete: ${t.title}"]`).first().tap().catch(() => {});
     await pg.waitForTimeout(150);
   }
+
+
+  console.log('-- add task: the full sheet --');
+  /* Tap the way in BEFORE typing, and with an empty input, for the same
+     reason the chip checks do: that is the path that broke on a real phone. */
+  await showBar(pg);
+  await openAdd(pg);
+  await pg.waitForTimeout(250);
+  check('the quick add offers a way to the full sheet',
+    await pg.locator('.compmore .linkbtn').count() === 1);
+  await pg.locator('.compmore .linkbtn').tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  await settled(pg);
+  check('it opens as a new task, not an edit',
+    (await pg.locator('.sheet h2').innerText()) === 'New task',
+    await pg.locator('.sheet h2').innerText());
+  check('a task with no name cannot be added',
+    await pg.locator('.sheet').getByRole('button', { name: 'Add task', exact: true }).isDisabled());
+  check('and says why', /needs a name/i.test(await pg.locator('.sheet').innerText()));
+  check('nothing about deleting a task that does not exist yet',
+    await pg.locator('.sheet .linkbtn.danger').count() === 0);
+  check('and no "added" line either',
+    await pg.locator('.sheet .addedline').count() === 0);
+  check('the date, time and note fields are all here',
+    await pg.locator('.sheet .togglebtn').filter({ hasText: 'Date' }).count() === 1 &&
+    await pg.locator('.sheet .togglebtn').filter({ hasText: 'Time' }).count() === 1 &&
+    await pg.locator('.sheet input[aria-label="Note"]').count() === 1);
+  await pg.locator('.sheet').getByRole('button', { name: 'Cancel' }).tap();
+  await pg.waitForTimeout(300);
+  check('cancelling adds nothing', !(await items()).find(x => x.title === ''));
+
+  /* Now the real path: type in the composer, carry it into the sheet. */
+  await openAdd(pg);
+  await pg.locator('.composer input').fill('Pick up the prescription');
+  await pg.waitForTimeout(150);
+  await pg.locator('.compchips .chip', { hasText: 'Must' }).tap();
+  await pg.waitForTimeout(150);
+  await pg.locator('.compmore .linkbtn').tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  await settled(pg);
+  check('what was typed comes with it',
+    (await pg.locator('input[aria-label="Task name"]').inputValue()) === 'Pick up the prescription',
+    await pg.locator('input[aria-label="Task name"]').inputValue());
+  check('and so does the importance already chosen',
+    (await pg.locator('.sheetfield', { hasText: 'IMPORTANCE' }).locator('.chip.on').innerText()) === 'Must');
+
+  await pg.locator('.sheet .togglebtn').filter({ hasText: 'Date' }).tap();
+  await pg.waitForTimeout(250);
+  await setNativeOn(pg, 'input[aria-label="Date"]', '2026-09-14');
+  await pg.locator('.sheet .togglebtn').filter({ hasText: 'Time' }).tap();
+  await pg.waitForTimeout(250);
+  await setNativeOn(pg, 'input[aria-label="Time"]', '14:30');
+  await pg.locator('input[aria-label="Note"]').fill('Chemist on the corner');
+  await pg.waitForTimeout(200);
+  check('no reminder offered before the task exists',
+    await pg.locator('.sheet .remindrow').count() === 0);
+  await pg.locator('.sheet').getByRole('button', { name: 'Add task', exact: true }).tap();
+  await pg.waitForTimeout(500);
+
+  const made = (await items()).find(x => x.title === 'Pick up the prescription');
+  check('the task is created with everything set in one go', !!made);
+  check('  date', made && made.dueDate === '2026-09-14', made && made.dueDate);
+  check('  time', made && made.dueTime === '14:30', made && made.dueTime);
+  check('  note', made && made.notes === 'Chemist on the corner', made && made.notes);
+  check('  importance', made && made.importance === 'must', made && made.importance);
+  check('the sheet closed behind it', await pg.locator('.sheet').count() === 0);
+  check('and the composer reset to the bar', await pg.locator('.hotbar').count() === 1);
+  const back = await items();
+  check('only one task was made', back.filter(x => x.title === 'Pick up the prescription').length === 1);
+  await pg.locator('button[aria-label="Delete: Pick up the prescription"]').first().tap();
+  await pg.waitForTimeout(300);
 
   console.log('-- sheet: every control by tap --');
   await pg.getByRole('button', { name: 'Go to the full list' }).tap();
