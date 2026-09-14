@@ -93,7 +93,8 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
   });
   check('home fills the viewport and does not scroll', !homeGeo.scrolls);
   check('header is the top quarter', Math.abs(homeGeo.headPct - 25) <= 1, homeGeo.headPct + '%');
-  check('six tiles, four tappable', homeGeo.tiles === 6 && homeGeo.tappable === 4,
+  check('six tiles, five tappable and one placeholder left',
+    homeGeo.tiles === 6 && homeGeo.tappable === 5,
     `${homeGeo.tiles}/${homeGeo.tappable}`);
   check('no text labels under the icons', homeGeo.gridText === '');
   check('date and quote are present',
@@ -1059,6 +1060,235 @@ console.log('\n##### a date decides the bucket #####');
   check('and it does not vanish', await pg.locator('.row').filter({ hasText: 'Ring the vet' }).count() === 1);
   check('the date really is gone',
     (await dbItems()).find(x => x.title === 'Ring the vet').dueDate === null);
+  console.log('  errors:', errs.length ? errs : 'none');
+  await ctx.close();
+}
+
+
+/* ---- goals ----
+   Its own context so the ledger starts empty and the counts below are exact.
+   Frozen in UTC because a habit's instance only exists on a day it falls on. */
+console.log('\n##### goals #####');
+{
+  const ctx = await b.newContext({ ...devices['iPhone 13'], hasTouch: true, timezoneId: 'UTC' });
+  const pg = await ctx.newPage();
+  const errs = [];
+  pg.on('pageerror', e => errs.push('PAGEERROR ' + e));
+  pg.on('console', m => { if (m.type() === 'error') errs.push(m.text().slice(0, 160)); });
+  await pg.clock.setFixedTime(new Date('2026-09-09T09:00:00Z'));   /* a Wednesday */
+  await pg.goto(`${BASE}/index.html`);
+  await pg.waitForSelector('.home', { timeout: 10000 });
+  await settled(pg);
+  const store = (key) => pg.evaluate((key) => new Promise(r => {
+    const q = indexedDB.open('quietdesk', 1);
+    q.onsuccess = () => { const rq = q.result.transaction('kv','readonly').objectStore('kv').get(key);
+      rq.onsuccess = () => r(rq.result || null); };
+  }), key);
+
+  /* Two tasks and a habit that runs today, so there is something to watch. */
+  await pg.locator('button.tile[aria-label="Tasks"]').tap();
+  await pg.waitForTimeout(500);
+  if (await pg.locator('.brief').count()) {
+    await pg.getByRole('button', { name: 'Go to the full list' }).tap();
+    await pg.waitForTimeout(300);
+  }
+  await showBar(pg);
+  await pg.locator('.hot', { hasText: 'Brain dump' }).tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  await pg.locator('.sheet textarea').fill('Book the flights\nRenew the passport');
+  await pg.waitForTimeout(200);
+  await pg.getByRole('button', { name: /Add 2 tasks/ }).tap();
+  await pg.waitForTimeout(500);
+
+  await showBar(pg);
+  await pg.locator('.hot', { hasText: 'Habits' }).tap();
+  await pg.waitForSelector('.habit-lead', { timeout: 5000 });
+  await pg.getByRole('button', { name: 'Add habit' }).tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  await settled(pg);
+  await pg.locator('input[aria-label="Habit name"]').fill('Swim');
+  for (const d of ['Mo','Tu','We','Th','Fr','Sa','Su']) {
+    await pg.locator('.daypick .day').filter({ hasText: new RegExp('^' + d + '$') }).tap();
+    await pg.waitForTimeout(80);
+  }
+  await setNativeOn(pg, 'input[aria-label="Start time"]', '06:00');
+  await pg.waitForTimeout(150);
+  await pg.getByRole('button', { name: 'Save', exact: true }).tap();
+  await pg.waitForTimeout(500);
+  await pg.locator('.backbtn').tap();
+  await pg.waitForTimeout(400);
+  await pg.locator('.backbtn').tap();
+  await pg.waitForSelector('.home', { timeout: 5000 });
+
+  console.log('-- goals: making one --');
+  check('Goals has a tile of its own', await pg.locator('button.tile[aria-label="Goals"]').count() === 1);
+  await pg.locator('button.tile[aria-label="Goals"]').tap();
+  await pg.waitForSelector('.habit-lead', { timeout: 5000 });
+  await settled(pg);
+  check('the empty state suggests starting with one',
+    /one is plenty/i.test(await pg.locator('.habit-empty').innerText()));
+  check('and does not scold', !/!|should|must/i.test(await pg.locator('.habit-empty').innerText()));
+
+  await pg.getByRole('button', { name: 'Add goal' }).tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  await settled(pg);
+  check('a goal will not save without a name',
+    await pg.locator('.sheet').getByRole('button', { name: 'Add goal', exact: true }).isDisabled());
+  await pg.locator('input[aria-label="Goal title"]').fill('Get away in summer');
+  await pg.locator('.sheet .chip', { hasText: 'Long' }).tap();
+  await pg.waitForTimeout(200);
+  await pg.locator('.sheet').getByRole('button', { name: 'Add goal', exact: true }).tap();
+  await pg.waitForTimeout(500);
+  check('it goes straight on to asking what to watch',
+    await pg.locator('.picklist').count() > 0);
+
+  const taskField = pg.locator('.sheetfield', { hasText: 'TASKS' });
+  const habitField = pg.locator('.sheetfield', { hasText: 'HABITS' });
+  check("a habit's own daily task is not offered as a one-off task",
+    await taskField.locator('.pickrow').filter({ hasText: 'Swim' }).count() === 0,
+    (await taskField.locator('.pk-title').allInnerTexts()).join(' | '));
+  await taskField.locator('.pickrow').filter({ hasText: 'Book the flights' }).tap();
+  await pg.waitForTimeout(200);
+  await taskField.locator('.pickrow').filter({ hasText: 'Renew the passport' }).tap();
+  await pg.waitForTimeout(200);
+  await habitField.locator('.pickrow').filter({ hasText: 'Swim' }).tap();
+  await pg.waitForTimeout(250);
+  check('picking a habit asks how many times',
+    await pg.locator('input[aria-label="Times for Swim"]').count() === 1);
+  await setNativeOn(pg, 'input[aria-label="Times for Swim"]', '4');
+  await pg.waitForTimeout(200);
+  await pg.getByRole('button', { name: 'Link them' }).tap();
+  await pg.waitForTimeout(500);
+
+  console.log('-- goals: progress reads the real things --');
+  check('three things are being watched', await pg.locator('.link-row').count() === 3,
+    String(await pg.locator('.link-row').count()));
+  /* The screen body carries no padding of its own, so a block that forgets
+     its own inset puts content against the bubble edge, where it clips.
+     Measured on the content itself — a full-width container that carries the
+     padding is doing its job, and its own box legitimately spans the width. */
+  check('nothing on the goal screen runs to the bubble edge', await pg.evaluate(() => {
+    const b = document.querySelector('.bubble').getBoundingClientRect();
+    const bad = ['.goal-h', '.goal-head .meter', '.goal-pct', '.link-row'].filter(sel => {
+      const el = document.querySelector(sel);
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return r.left < b.left + 8 || r.right > b.right - 8;
+    });
+    return bad.length === 0 || bad.join();
+  }) === true);
+  check('nothing done yet', (await pg.locator('.goal-pct').first().innerText()) === '0%',
+    await pg.locator('.goal-pct').first().innerText());
+  check('the habit shows its count, not a verdict',
+    (await pg.locator('.link-row').filter({ hasText: 'Swim' }).locator('.lk-state').innerText()) === '0 of 4');
+  check('no goal state was stored — it is all read from the source',
+    (await store('goals')).goals[0].linkedTasks.length === 2 &&
+    (await store('goals')).goals[0].linkedHabits[0].targetCount === 4);
+
+  /* Tick one task and the swim, back on the Tasks screen. */
+  await pg.locator('.backbtn').tap();
+  await pg.waitForTimeout(400);
+  await pg.locator('.backbtn').tap();
+  await pg.waitForSelector('.home', { timeout: 5000 });
+  await pg.locator('button.tile[aria-label="Tasks"]').tap();
+  await pg.waitForTimeout(500);
+  if (await pg.locator('.brief').count()) {
+    await pg.getByRole('button', { name: 'Go to the full list' }).tap();
+    await pg.waitForTimeout(300);
+  }
+  await pg.locator('.row').filter({ hasText: 'Book the flights' }).locator('.tickbtn').tap();
+  await pg.waitForTimeout(350);
+  await pg.locator('.row').filter({ hasText: 'Swim' }).locator('.tickbtn').tap();
+  await pg.waitForTimeout(400);
+  const ledger = await store('done');
+  check('the tick writes the task down', Object.keys(ledger.tasks).length === 2,
+    String(Object.keys(ledger.tasks).length));
+  check('and the habit instance separately', Object.keys(ledger.habits).length === 1);
+
+  await pg.locator('.backbtn').tap();
+  await pg.waitForSelector('.home', { timeout: 5000 });
+  await pg.locator('button.tile[aria-label="Goals"]').tap();
+  await pg.waitForSelector('.goal-list', { timeout: 5000 });
+  await settled(pg);
+  /* one of two tasks done (1), one not (0), swim 1 of 4 (0.25) -> 42% */
+  check('the goal has moved on its own', (await pg.locator('.goal-pct').first().innerText()) === '42%',
+    await pg.locator('.goal-pct').first().innerText());
+  check('the bar moved with it', await pg.evaluate(() =>
+    parseFloat(document.querySelector('.meter-fill').style.width) > 0));
+
+  await pg.locator('.goal-body').first().tap();
+  await pg.waitForTimeout(450);
+  check('the swim count went up',
+    (await pg.locator('.link-row').filter({ hasText: 'Swim' }).locator('.lk-state').innerText()) === '1 of 4');
+  check('the finished task reads as done',
+    (await pg.locator('.link-row').filter({ hasText: 'Book the flights' }).locator('.lk-state').innerText()) === 'Done');
+
+  console.log('-- goals: untick, unlink, done, delete --');
+  /* Unticking takes it back off the ledger rather than leaving a ghost. */
+  await pg.locator('.backbtn').tap();
+  await pg.waitForTimeout(400);
+  await pg.locator('.backbtn').tap();
+  await pg.waitForSelector('.home', { timeout: 5000 });
+  await pg.locator('button.tile[aria-label="Tasks"]').tap();
+  await pg.waitForTimeout(600);
+  if (await pg.locator('.brief').count()) {
+    await pg.getByRole('button', { name: 'Go to the full list' }).tap();
+    await pg.waitForTimeout(300);
+  }
+  await pg.locator('.row.done').filter({ hasText: 'Swim' }).locator('.tickbtn').tap();
+  await pg.waitForTimeout(400);
+  check('unticking removes the record', Object.keys((await store('done')).habits).length === 0);
+  await pg.locator('.backbtn').tap();
+  await pg.waitForSelector('.home', { timeout: 5000 });
+  await pg.locator('button.tile[aria-label="Goals"]').tap();
+  await pg.waitForSelector('.goal-list', { timeout: 5000 });
+  await settled(pg);
+  check('and the goal follows it back down',
+    (await pg.locator('.goal-pct').first().innerText()) === '33%',
+    await pg.locator('.goal-pct').first().innerText());
+
+  await pg.locator('.goal-body').first().tap();
+  await pg.waitForTimeout(450);
+  await pg.locator('.link-row').filter({ hasText: 'Swim' })
+    .locator('button[aria-label="Unlink Swim"]').tap();
+  await pg.waitForTimeout(450);
+  check('unlinking drops it from the goal', await pg.locator('.link-row').count() === 2);
+  check('and leaves the habit alone', (await store('habitsv2')).habits.length === 1);
+  check('the percentage re-reads without it',
+    (await pg.locator('.goal-pct').first().innerText()) === '50%',
+    await pg.locator('.goal-pct').first().innerText());
+
+  await pg.getByRole('button', { name: 'Mark as done' }).tap();
+  await pg.waitForTimeout(400);
+  check('a goal can be called done by hand',
+    (await store('goals')).goals[0].status === 'done');
+  check('and the percentage stays honest',
+    (await pg.locator('.goal-pct').first().innerText()) === '50%',
+    await pg.locator('.goal-pct').first().innerText());
+  await pg.locator('.backbtn').tap();
+  await pg.waitForTimeout(450);
+  check('it moves to Done rather than vanishing',
+    await pg.locator('.goal-done .goal-bubble').count() === 1);
+
+  await pg.locator('.goal-done .goal-body').tap();
+  await pg.waitForTimeout(450);
+  await pg.getByRole('button', { name: 'Delete goal' }).tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  await settled(pg);
+  check('deleting asks first', /Delete this goal/i.test(await pg.locator('.sheet h2').innerText()));
+  check('and says the linked things are safe',
+    /stays exactly as it is/i.test(await pg.locator('.confirm-detail').innerText()));
+  await pg.getByRole('button', { name: 'Keep it' }).tap();
+  await pg.waitForTimeout(350);
+  check('backing out keeps it', (await store('goals')).goals.length === 1);
+  await pg.getByRole('button', { name: 'Delete goal' }).tap();
+  await pg.waitForSelector('.sheet', { timeout: 5000 });
+  await settled(pg);
+  await pg.getByRole('button', { name: 'Delete it' }).tap();
+  await pg.waitForTimeout(500);
+  check('confirming removes the goal', (await store('goals')).goals.length === 0);
+  check('and never its tasks', (await store('tasks')).items.length >= 1);
+  check('nor its habits', (await store('habitsv2')).habits.length === 1);
   console.log('  errors:', errs.length ? errs : 'none');
   await ctx.close();
 }

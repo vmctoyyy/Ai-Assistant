@@ -1178,6 +1178,233 @@
     });
   }
 
+  /* ---------- the completions ledger ----------
+     Goals watch tasks and habits rather than copying them, which needs a
+     record of what has been finished. Neither existed: rollDay deletes a
+     completed task outright at midnight, and the recap archive keeps only a
+     title — no habitId — pruned at 60 days. So a goal's checklist would empty
+     itself overnight and a habit count would have nothing to count.
+
+     This ledger is written by the same tick that completes the task and
+     unwritten by the tick that undoes it, so it cannot drift from the thing it
+     records: still one source of truth, written down once centrally, rather
+     than a copy kept per goal. */
+  function blankDone() { return { tasks: {}, habits: {} }; }
+
+  function normDone(v) {
+    var out = blankDone();
+    if (!v || typeof v !== "object") return out;
+    if (v.tasks && typeof v.tasks === "object") {
+      Object.keys(v.tasks).forEach(function (k) {
+        if (typeof v.tasks[k] === "number") out.tasks[k] = v.tasks[k];
+      });
+    }
+    if (v.habits && typeof v.habits === "object") {
+      Object.keys(v.habits).forEach(function (k) {
+        var e = v.habits[k];
+        if (e && typeof e === "object" && typeof e.at === "number" && e.h) {
+          out.habits[k] = { h: String(e.h), at: e.at };
+        }
+      });
+    }
+    return out;
+  }
+
+  /* One key per habit instance, so ticking the same morning's gym twice
+     records it once and unticking takes it back off. */
+  function habitDoneKey(t) {
+    return isHabitTask(t) ? t.habitId + ":" + t.slotId + ":" + t.genOn : null;
+  }
+  function recordCompletion(done, task) {
+    var out = normDone(done);
+    var hk = habitDoneKey(task);
+    if (task.completedAt) {
+      out.tasks[task.id] = task.completedAt;
+      if (hk) out.habits[hk] = { h: task.habitId, at: task.completedAt };
+    } else {
+      delete out.tasks[task.id];
+      if (hk) delete out.habits[hk];
+    }
+    return out;
+  }
+  function taskDoneAt(done, id) {
+    var d = normDone(done);
+    return typeof d.tasks[id] === "number" ? d.tasks[id] : null;
+  }
+  /* Completions of one habit at or after a moment. Goals count from when they
+     were made, so anything finished earlier is not theirs to claim. */
+  function habitCountSince(done, habitId, sinceMs) {
+    var d = normDone(done), n = 0;
+    Object.keys(d.habits).forEach(function (k) {
+      var e = d.habits[k];
+      if (e.h === habitId && e.at >= (sinceMs || 0)) n += 1;
+    });
+    return n;
+  }
+  /* Keeps the ledger from growing without end: a task entry is worth holding
+     only while some goal points at it or the task is still on the list, and a
+     habit entry outlives any goal that could reasonably still be counting. */
+  function pruneDone(done, items, goals, nowMs) {
+    var d = normDone(done), out = blankDone();
+    var keep = {};
+    (items || []).forEach(function (t) { keep[t.id] = true; });
+    ((goals && goals.goals) || []).forEach(function (g) {
+      g.linkedTasks.forEach(function (link) { keep[link.id] = true; });
+    });
+    Object.keys(d.tasks).forEach(function (k) { if (keep[k]) out.tasks[k] = d.tasks[k]; });
+    var floor = (typeof nowMs === "number" ? nowMs : Date.now()) - 730 * 86400000;
+    Object.keys(d.habits).forEach(function (k) {
+      if (d.habits[k].at >= floor) out.habits[k] = d.habits[k];
+    });
+    return out;
+  }
+
+  /* ---------- goals ----------
+     A goal owns nothing. It names things that already exist and reads their
+     state; deleting one takes the container and leaves every task and habit
+     exactly as it was. */
+  var TIMEFRAMES = ["short", "long"];
+  var GOAL_STATUS = ["active", "done", "archived"];
+
+  function blankGoals() { return { goals: [] }; }
+
+  function normLink(l) {
+    if (!l || !l.habitId) return null;
+    var n = typeof l.targetCount === "number" ? l.targetCount : parseInt(l.targetCount, 10);
+    if (!isFinite(n) || n < 1) n = 1;
+    return { habitId: String(l.habitId), targetCount: Math.floor(n) };
+  }
+  /* A linked task keeps a copy of its title — not its state. The tick stays
+     the only truth; the title is so a goal can still name what it was
+     watching after the midnight clear has taken the task away. */
+  function normLinkedTask(t) {
+    if (typeof t === "string") return { id: t, title: "" };
+    if (!t || !t.id) return null;
+    return { id: String(t.id), title: t.title ? String(t.title) : "" };
+  }
+  function normGoal(g) {
+    if (!g || !g.title || !String(g.title).trim()) return null;
+    var seenT = {}, seenH = {};
+    var tasks = (Array.isArray(g.linkedTasks) ? g.linkedTasks : [])
+      .map(normLinkedTask).filter(function (t) {
+        if (!t || seenT[t.id]) return false;
+        seenT[t.id] = true; return true;
+      });
+    var habits = (Array.isArray(g.linkedHabits) ? g.linkedHabits : [])
+      .map(normLink).filter(function (l) {
+        if (!l || seenH[l.habitId]) return false;
+        seenH[l.habitId] = true; return true;
+      });
+    return {
+      id: g.id || uid(),
+      title: String(g.title).trim(),
+      timeframe: TIMEFRAMES.indexOf(g.timeframe) >= 0 ? g.timeframe : "short",
+      targetDate: validDate(g.targetDate),
+      linkedTasks: tasks,
+      linkedHabits: habits,
+      status: GOAL_STATUS.indexOf(g.status) >= 0 ? g.status : "active",
+      createdAt: typeof g.createdAt === "number" ? g.createdAt : Date.now()
+    };
+  }
+  function normGoals(v) {
+    var out = blankGoals();
+    if (!v || typeof v !== "object") return out;
+    out.goals = (Array.isArray(v.goals) ? v.goals : []).map(normGoal).filter(Boolean);
+    return out;
+  }
+  function makeGoal(title, opts) {
+    opts = opts || {};
+    return normGoal({
+      id: opts.id, title: title, timeframe: opts.timeframe,
+      targetDate: opts.targetDate, linkedTasks: opts.linkedTasks,
+      linkedHabits: opts.linkedHabits, status: opts.status,
+      createdAt: typeof opts.now === "number" ? opts.now : Date.now()
+    });
+  }
+
+  /* Every linked thing counts once, whether it is a single task or a habit
+     wanting thirty sessions — "weighted equally as items, not by count of
+     underlying instances". A goal with nothing linked sits at zero rather
+     than dividing by none. */
+  function goalItems(goal, items, done, habits) {
+    var byId = {};
+    (items || []).forEach(function (t) { byId[t.id] = t; });
+    var hById = {};
+    ((habits && habits.habits) || []).forEach(function (hb) { hById[hb.id] = hb; });
+    var out = [];
+    goal.linkedTasks.forEach(function (link) {
+      var live = byId[link.id];
+      var at = live ? live.completedAt : taskDoneAt(done, link.id);
+      out.push({
+        kind: "task", id: link.id,
+        title: (live && live.title) || link.title || "A task that is no longer here",
+        gone: !live,
+        doneAt: at || null,
+        progress: at ? 1 : 0
+      });
+    });
+    goal.linkedHabits.forEach(function (link) {
+      var n = habitCountSince(done, link.habitId, goal.createdAt);
+      var hb = hById[link.habitId];
+      out.push({
+        kind: "habit", id: link.habitId,
+        title: (hb && hb.name) || "A habit that is no longer here",
+        gone: !hb,
+        count: n, target: link.targetCount,
+        progress: Math.min(1, n / link.targetCount)
+      });
+    });
+    return out;
+  }
+  function goalProgress(goal, items, done, habits) {
+    var list = goalItems(goal, items, done, habits);
+    if (!list.length) return 0;
+    var sum = list.reduce(function (n, i) { return n + i.progress; }, 0);
+    return sum / list.length;
+  }
+  function goalPercent(goal, items, done, habits) {
+    return Math.round(goalProgress(goal, items, done, habits) * 100);
+  }
+  /* Done means the user said so, or everything linked is finished. A goal
+     with nothing linked is never automatically done. */
+  function goalIsDone(goal, items, done, habits) {
+    if (goal.status === "done") return true;
+    var list = goalItems(goal, items, done, habits);
+    return list.length > 0 && list.every(function (i) { return i.progress >= 1; });
+  }
+  /* Open goals oldest first so the list holds still; finished ones after. */
+  function sortGoals(list) {
+    return list.slice().sort(function (a, b) {
+      if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+      return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+    });
+  }
+  function splitGoals(state, items, done, habits) {
+    var all = sortGoals(normGoals(state).goals.filter(function (g) {
+      return g.status !== "archived";
+    }));
+    return {
+      active: all.filter(function (g) { return !goalIsDone(g, items, done, habits); }),
+      done: all.filter(function (g) { return goalIsDone(g, items, done, habits); })
+    };
+  }
+  /* "3 of 12" / "Gym 8 of 30" — factual, never a verdict on the pace. */
+  function goalItemLabel(item) {
+    if (item.kind === "habit") return item.count + " of " + item.target;
+    return item.doneAt ? "Done" : "Not yet";
+  }
+  function targetDateLabel(goal, today) {
+    if (!goal.targetDate) return "";
+    var n = daysBetween(today, goal.targetDate);
+    var d = keyToDate(goal.targetDate);
+    var when = d.getDate() + " " + MO3[d.getMonth()];
+    if (d.getFullYear() !== keyToDate(today).getFullYear()) when += " " + d.getFullYear();
+    if (n === 0) return "Target today";
+    if (n === 1) return "Target tomorrow";
+    if (n < 0) return "Target was " + when;
+    return "Target " + when;
+  }
+
   /* ---------- calendar export ----------
      A static site has no push server, so a reminder is a real calendar event
      with a 30-minute alarm. Floating local time: 12:30 means 12:30 wherever
@@ -1258,6 +1485,14 @@
     cartsNewestFirst: cartsNewestFirst,
     shopsByName: shopsByName, cartPreview: cartPreview, cartOpenCount: cartOpenCount,
     sweepCarts: sweepCarts,
+    blankDone: blankDone, normDone: normDone, habitDoneKey: habitDoneKey,
+    recordCompletion: recordCompletion, taskDoneAt: taskDoneAt,
+    habitCountSince: habitCountSince, pruneDone: pruneDone,
+    TIMEFRAMES: TIMEFRAMES, GOAL_STATUS: GOAL_STATUS,
+    blankGoals: blankGoals, normGoals: normGoals, normGoal: normGoal, makeGoal: makeGoal,
+    goalItems: goalItems, goalProgress: goalProgress, goalPercent: goalPercent,
+    goalIsDone: goalIsDone, splitGoals: splitGoals, sortGoals: sortGoals,
+    goalItemLabel: goalItemLabel, targetDateLabel: targetDateLabel,
     RECURRENCE: RECURRENCE, blankHabits: blankHabits, normHabits: normHabits,
     normHabit: normHabit, normSlot: normSlot, makeHabit: makeHabit, makeSlot: makeSlot,
     slotMatches: slotMatches, habitSlotsOn: habitSlotsOn,
