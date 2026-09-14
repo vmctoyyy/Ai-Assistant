@@ -66,8 +66,12 @@
     { id: "shopping", name: "Shopping", tone: 4,
       draw: function () { return strokes("M5 8.5h14l-1.3 9.2a2 2 0 0 1-2 1.7H8.3a2 2 0 0 1-2-1.7z",
                                          "M9.2 8.5V6.8a2.8 2.8 0 0 1 5.6 0v1.7"); } },
-    { id: "placeholder-1", name: "", tone: 5, placeholder: true,
-      draw: function () { return strokes("M8.5 8.5l7 7", "M15.5 8.5l-7 7"); } },
+    { id: "goals", name: "Goals", tone: 5,
+      draw: function () {
+        return [h("circle", { key: "o", cx: 12, cy: 12, r: 7.5 }),
+                h("circle", { key: "m", cx: 12, cy: 12, r: 3.8 }),
+                h("circle", { key: "i", cx: 12, cy: 12, r: .6, fill: "currentColor" })];
+      } },
     { id: "placeholder-2", name: "", tone: 5, placeholder: true,
       draw: function () { return strokes("M8.5 8.5l7 7", "M15.5 8.5l-7 7"); } }
   ];
@@ -1210,6 +1214,223 @@
         : null);
   }
 
+  /* ---------- goals ---------- */
+  var TF_OPTS = [{ value: "short", label: "Short" }, { value: "long", label: "Long" }];
+
+  function Meter(props) {
+    var pct = Math.max(0, Math.min(100, props.pct));
+    return div({ className: "meter", role: "img",
+      "aria-label": pct + " per cent of the way" },
+      div({ className: "meter-fill", style: { width: pct + "%" } }));
+  }
+
+  /* Choosing what a goal watches. Nothing is created here — only existing
+     tasks and habits are named, which is what keeps a goal a container. */
+  function LinkPicker(props) {
+    var s1 = useState(props.tasks), pickT = s1[0], setPickT = s1[1];
+    var s2 = useState(props.habits), pickH = s2[0], setPickH = s2[1];
+
+    function toggleTask(t) {
+      var on = pickT.some(function (x) { return x.id === t.id; });
+      setPickT(on ? pickT.filter(function (x) { return x.id !== t.id; })
+                  : pickT.concat([{ id: t.id, title: t.title }]));
+    }
+    function toggleHabit(hb) {
+      var on = pickH.some(function (x) { return x.habitId === hb.id; });
+      setPickH(on ? pickH.filter(function (x) { return x.habitId !== hb.id; })
+                  : pickH.concat([{ habitId: hb.id, targetCount: 10 }]));
+    }
+    function setCount(id, v) {
+      setPickH(pickH.map(function (x) {
+        return x.habitId === id ? { habitId: id, targetCount: v } : x;
+      }));
+    }
+    return h(Sheet, {
+      title: "What is this goal watching?", onClose: props.onClose, footerSpread: true,
+      footer: [
+        button({ key: "c", className: "btn", onClick: props.onClose }, "Cancel"),
+        button({ key: "s", className: "btn primary",
+          onClick: function () { props.onSave(pickT, pickH); props.onClose(); } }, "Link them")
+      ]
+    },
+      div({ className: "sheetfield" },
+        span({ className: "fieldlabel" }, "Tasks"),
+        props.allTasks.length === 0
+          ? p({ className: "fieldnote" }, "No open tasks to link just yet.")
+          : div({ className: "picklist" }, props.allTasks.map(function (t) {
+              var on = pickT.some(function (x) { return x.id === t.id; });
+              return button({
+                key: t.id, type: "button", className: "pickrow" + (on ? " on" : ""),
+                "aria-pressed": on ? "true" : "false",
+                onMouseDown: function (e) { e.preventDefault(); },
+                onClick: function () { toggleTask(t); }
+              }, h(Check, { on: on }), span({ className: "pk-title" }, t.title));
+            }))),
+
+      div({ className: "sheetfield" },
+        span({ className: "fieldlabel" }, "Habits"),
+        props.allHabits.length === 0
+          ? p({ className: "fieldnote" }, "No habits to link just yet.")
+          : div({ className: "picklist" }, props.allHabits.map(function (hb) {
+              var link = pickH.filter(function (x) { return x.habitId === hb.id; })[0];
+              return div({ className: "pickwrap", key: hb.id },
+                button({
+                  type: "button", className: "pickrow" + (link ? " on" : ""),
+                  "aria-pressed": link ? "true" : "false",
+                  onMouseDown: function (e) { e.preventDefault(); },
+                  onClick: function () { toggleHabit(hb); }
+                }, h(Check, { on: !!link }), span({ className: "pk-title" }, hb.name)),
+                link ? div({ className: "pk-count" },
+                  h("label", { className: "slot-lab", htmlFor: "cnt-" + hb.id }, "How many?"),
+                  input({
+                    id: "cnt-" + hb.id, className: "field num", type: "number", min: 1,
+                    value: link.targetCount, "aria-label": "Times for " + hb.name,
+                    onChange: function (e) { setCount(hb.id, e.target.value); }
+                  })) : null);
+            }))));
+  }
+
+  /* Add or edit a goal. Linking is its own step, so this stays a short form. */
+  function GoalSheet(props) {
+    var goal = props.goal;
+    var s1 = useState(goal ? goal.title : ""), title = s1[0], setTitle = s1[1];
+    var s2 = useState(goal ? goal.timeframe : "short"), tf = s2[0], setTf = s2[1];
+    var s3 = useState(!!(goal && goal.targetDate)), onDate = s3[0], setOnDate = s3[1];
+    var s4 = useState((goal && goal.targetDate) || props.today), date = s4[0], setDate = s4[1];
+    var clean = title.trim();
+
+    function save() {
+      if (!clean) return;
+      props.onSave({
+        title: clean, timeframe: tf, targetDate: onDate ? date : null
+      });
+      props.onClose();
+    }
+    return h(Sheet, {
+      title: goal ? "Edit goal" : "New goal", onClose: props.onClose, footerSpread: true,
+      footer: [
+        span({ key: "sp" }),
+        div({ key: "acts", style: { display: "flex", gap: ".5rem" } },
+          button({ className: "btn", onClick: props.onClose }, "Cancel"),
+          button({ className: "btn primary", disabled: !clean, onClick: save },
+            goal ? "Save" : "Add goal"))
+      ]
+    },
+      div({ className: "sheetfield" },
+        span({ className: "fieldlabel" }, "Goal"),
+        input({
+          className: "field", value: title, placeholder: "Read 12 books",
+          "aria-label": "Goal title", enterKeyHint: "done",
+          onChange: function (e) { setTitle(e.target.value); },
+          onKeyDown: function (e) { if (e.key === "Enter") { e.preventDefault(); save(); } }
+        }),
+        clean ? null : span({ className: "fieldnote" }, "A goal needs a name.")),
+
+      div({ className: "sheetfield" },
+        span({ className: "fieldlabel" }, "Timeframe"),
+        h(Chips, { label: "Timeframe", options: TF_OPTS, value: tf, onChange: setTf }),
+        span({ className: "fieldnote" },
+          "A label for you. It changes nothing about how progress is counted.")),
+
+      div({ className: "sheetfield" },
+        span({ className: "fieldlabel" }, "Target date"),
+        div({ className: "togglerow" },
+          h(Toggle, { on: onDate, label: "Set a date", onChange: setOnDate }),
+          onDate ? input({
+            className: "field stamp", type: "date", value: date, "aria-label": "Target date",
+            onChange: function (e) { setDate(e.target.value); }
+          }) : null),
+        onDate ? span({ className: "fieldnote" },
+          "Shown on the goal. Nothing changes colour or starts nagging as it approaches.") : null));
+  }
+
+  function GoalsApp(props) {
+    var split = props.split;
+    function bubble(g) {
+      var pct = QD.goalPercent(g, props.items, props.done, props.habits);
+      var target = QD.targetDateLabel(g, props.today);
+      return div({ className: "goal-bubble", key: g.id },
+        button({ className: "goal-body", onClick: function () { props.onOpen(g.id); },
+          "aria-label": "Open goal: " + g.title },
+          div({ className: "goal-top" },
+            span({ className: "goal-name" }, g.title),
+            span({ className: "goal-pct" }, pct + "%")),
+          h(Meter, { pct: pct }),
+          div({ className: "goal-meta" },
+            span({ className: "goal-tf" }, g.timeframe === "long" ? "Long term" : "Short term"),
+            target ? span(null, target) : null)));
+    }
+    return h(Screen, { title: "Goals", onBack: props.onBack, anim: props.anim },
+      div({ className: "habit-lead" },
+        button({ className: "btn", onClick: props.onNew },
+          icon(I_PLUS, 16), span(null, "Add goal"))),
+
+      split.active.length === 0 && split.done.length === 0
+        ? div({ className: "habit-empty" },
+            p(null, "Nothing here yet."),
+            p({ className: "muted" },
+              "A goal watches tasks and habits you already have and shows how far along they are. It does not add work of its own."),
+            p({ className: "muted" },
+              "One is plenty to begin with. Pick something you are already doing and let it keep count."))
+        : null,
+
+      split.active.length
+        ? div({ className: "goal-list" }, split.active.map(bubble)) : null,
+
+      split.done.length
+        ? section({ className: "sec goal-done" },
+            h(Eyebrow, { title: "Done" }),
+            div({ className: "goal-list" }, split.done.map(bubble))) : null);
+  }
+
+  function GoalScreen(props) {
+    var goal = props.goal;
+    var s1 = useState(false), armed = s1[0], setArmed = s1[1];
+    var list = QD.goalItems(goal, props.items, props.done, props.habits);
+    var pct = QD.goalPercent(goal, props.items, props.done, props.habits);
+    var target = QD.targetDateLabel(goal, props.today);
+    var finished = QD.goalIsDone(goal, props.items, props.done, props.habits);
+
+    return h(Screen, { title: "Goal", onBack: props.onBack, anim: props.anim },
+      div({ className: "goal-head" },
+        h2({ className: "goal-h" }, goal.title),
+        div({ className: "goal-top" },
+          span({ className: "goal-tf" }, goal.timeframe === "long" ? "Long term" : "Short term"),
+          span({ className: "goal-pct big" }, pct + "%")),
+        h(Meter, { pct: pct }),
+        target ? p({ className: "goal-target" }, target) : null),
+
+      section({ className: "sec" },
+        h(Eyebrow, { title: "Watching", hint: list.length ? String(list.length) : null }),
+        list.length === 0
+          ? p({ className: "empty-note" }, "Nothing linked yet.")
+          : div({ className: "link-list" }, list.map(function (i) {
+              return div({ className: "link-row" + (i.gone ? " gone" : ""), key: i.kind + i.id },
+                div({ className: "lk-body" },
+                  div({ className: "lk-title" },
+                    i.kind === "habit" ? span({ className: "habitmark" }, icon(I_REPEAT, 13)) : null,
+                    i.title),
+                  div({ className: "lk-state" }, QD.goalItemLabel(i))),
+                button({
+                  className: "iconbtn", "aria-label": "Unlink " + i.title,
+                  onClick: function () { props.onUnlink(i.kind, i.id); }
+                }, icon(I_X, 17)));
+            })),
+        button({ className: "btn wide", onClick: props.onLink },
+          icon(I_PLUS, 16), span(null, "Link something else"))),
+
+      section({ className: "sec" },
+        button({ className: "btn wide" + (finished ? " on" : ""), onClick: props.onToggleDone },
+          finished ? "Mark as not done" : "Mark as done"),
+        p({ className: "fieldnote" }, finished
+          ? "This goal is sitting in Done."
+          : "For a goal that will not tick to a hundred on its own."),
+        div({ className: "goal-acts" },
+          button({ className: "linkbtn", onClick: props.onEdit }, "Edit goal"),
+          button({ className: "linkbtn danger" + (armed ? " armed" : ""),
+            onClick: props.onDelete }, "Delete goal"))));
+  }
+
   /* ---------- app ---------- */
   function App() {
     var s0 = useState(true), loading = s0[0], setLoading = s0[1];
@@ -1221,6 +1442,11 @@
     var s5 = useState(function () { return { list: [] }; }), quotes = s5[0], setQuotesRaw = s5[1];
     var s6 = useState(QD.blankCarts), carts = s6[0], setCartsRaw = s6[1];
     var sH = useState(QD.blankHabits), habits = sH[0], setHabitsRaw = sH[1];
+    var sG = useState(QD.blankGoals), goals = sG[0], setGoalsRaw = sG[1];
+    var sDN = useState(QD.blankDone), done = sDN[0], setDoneRaw = sDN[1];
+    var sOG = useState(null), openGoalId = sOG[0], setOpenGoalId = sOG[1];
+    var sGE = useState(null), editingGoal = sGE[0], setEditingGoal = sGE[1];
+    var sGL = useState(null), linkingGoal = sGL[0], setLinkingGoal = sGL[1];
     var sHE = useState(null), editingHabit = sHE[0], setEditingHabit = sHE[1];
     var sHF = useState("home"), habitsFrom = sHF[0], setHabitsFrom = sHF[1];
     var sC = useState(null), openCartId = sC[0], setOpenCartId = sC[1];
@@ -1266,6 +1492,8 @@
     /* habitsv2, not habits: the old toggle app's dot history still sits under
        `habits` and is carried untouched. */
     var setHabits   = useCallback(function (v) { setHabitsRaw(v);   save("habitsv2", v); }, []);
+    var setGoals    = useCallback(function (v) { setGoalsRaw(v);    save("goals", v); }, []);
+    var setDone     = useCallback(function (v) { setDoneRaw(v);     save("done", v); }, []);
     var setPrefs    = useCallback(function (v) { setPrefsRaw(v);    save("prefs", v); }, []);
 
     /* boot */
@@ -1292,7 +1520,7 @@
             readKey("recap", null), readKey("quotes", null), readKey("shopping", null),
             readKey("carts", null),
             readKey("habits", null), readKey("markets", null), readKey("schedule", null),
-            readKey("habitsv2", null)
+            readKey("habitsv2", null), readKey("goals", null), readKey("done", null)
           ]).then(function (res) {
             if (cancelled) return;
             var t = QD.migrate(res[0], day);
@@ -1310,10 +1538,17 @@
             t = { version: 2, items: hb.items, doneYesterday: t.doneYesterday,
                   lastRollOn: t.lastRollOn };
             var pf = normPrefs(res[1]);
+            /* The ledger is what lets a goal still see a task the midnight
+               clear has taken away, so it is pruned against the goals that
+               still point at things rather than against the task list. */
+            var gl = QD.normGoals(res[10]);
+            var dn = QD.pruneDone(QD.normDone(res[11]), t.items, gl);
 
             setToday(day);
             setTasksRaw(t);
             setHabitsRaw(hb.habits);
+            setGoalsRaw(gl);
+            setDoneRaw(dn);
             setRecapRaw(rc);
             setQuotesRaw(QD.normQuotes(res[3]));
             /* Carts absorb the old flat shopping list on first run. */
@@ -1328,6 +1563,8 @@
             save("recap", rc);
             save("carts", ct);
             save("habitsv2", hb.habits);
+            save("goals", gl);
+            save("done", dn);
           });
         })
         .catch(function () {
@@ -1419,12 +1656,17 @@
       commit(tasks.items.concat(made));
     }
     function toggleTask(id) {
+      var flipped = null;
       commit(tasks.items.map(function (t) {
         if (t.id !== id) return t;
-        return Object.assign({}, t, {
+        flipped = Object.assign({}, t, {
           completedAt: t.completedAt ? null : Date.now(), updatedAt: Date.now()
         });
+        return flipped;
       }));
+      /* Written by the same tick that completes the task and unwritten by the
+         one that undoes it, so the two can never disagree. */
+      if (flipped) setDone(QD.recordCompletion(done, flipped));
     }
     function deleteTask(id) {
       commit(tasks.items.filter(function (t) { return t.id !== id; }));
@@ -1591,6 +1833,51 @@
       commitHabits(habits.habits.filter(function (hb) { return hb.id !== id; }), gen);
     }
 
+    /* ---- goal actions ----
+       A goal only ever names things. Nothing here writes to a task or a
+       habit, and deleting one takes the container alone. */
+    function commitGoals(list) { setGoals({ goals: list }); }
+    function saveGoal(id, changes) {
+      if (id) {
+        commitGoals(goals.goals.map(function (g) {
+          return g.id === id ? QD.normGoal(Object.assign({}, g, changes)) : g;
+        }));
+        return;
+      }
+      var made = QD.makeGoal(changes.title, {
+        timeframe: changes.timeframe, targetDate: changes.targetDate
+      });
+      commitGoals(goals.goals.concat([made]));
+      /* Straight into linking: a goal watching nothing cannot show anything. */
+      setOpenGoalId(made.id);
+      setLinkingGoal(made.id);
+    }
+    function linkToGoal(id, tasks, habitLinks) {
+      commitGoals(goals.goals.map(function (g) {
+        return g.id === id
+          ? QD.normGoal(Object.assign({}, g, { linkedTasks: tasks, linkedHabits: habitLinks }))
+          : g;
+      }));
+    }
+    function unlinkFromGoal(id, kind, linkId) {
+      commitGoals(goals.goals.map(function (g) {
+        if (g.id !== id) return g;
+        return QD.normGoal(Object.assign({}, g, kind === "habit"
+          ? { linkedHabits: g.linkedHabits.filter(function (l) { return l.habitId !== linkId; }) }
+          : { linkedTasks: g.linkedTasks.filter(function (l) { return l.id !== linkId; }) }));
+      }));
+    }
+    function toggleGoalDone(id) {
+      commitGoals(goals.goals.map(function (g) {
+        if (g.id !== id) return g;
+        var finished = QD.goalIsDone(g, tasks.items, done, habits);
+        return QD.normGoal(Object.assign({}, g, { status: finished ? "active" : "done" }));
+      }));
+    }
+    function deleteGoal(id) {
+      commitGoals(goals.goals.filter(function (g) { return g.id !== id; }));
+    }
+
     /* Clears the apps that are live. Retired keys are deliberately left
        alone — the old toggle app's habit history is meant to survive. */
     function resetAll() {
@@ -1600,6 +1887,8 @@
       setCarts(QD.blankCarts());
       setQuotes({ list: [] });
       setHabits(QD.blankHabits());
+      setGoals(QD.blankGoals());
+      setDone(QD.blankDone());
       setArmed(false); setWarn(null);
     }
     function restore(data) {
@@ -1609,6 +1898,8 @@
       setQuotes(QD.normQuotes(data.quotes));
       setCarts(QD.sweepCarts(QD.normCarts(data.carts, QD.normShopping(data.shopping)), day));
       setHabits(QD.normHabits(data.habitsv2));
+      setGoals(QD.normGoals(data.goals));
+      setDone(QD.normDone(data.done));
       if (data.habits || data.markets || data.schedule) {
         setRetired({ habits: data.habits, markets: data.markets, schedule: data.schedule });
       }
@@ -1617,9 +1908,10 @@
     var snapshot = useMemo(function () {
       return { app: "quiet-desk", version: 3, exportedAt: new Date().toISOString(),
         tasks: tasks, recap: recap, quotes: quotes, carts: carts, habitsv2: habits,
+        goals: goals, done: done,
         habits: retired.habits, markets: retired.markets, schedule: retired.schedule,
         shopping: retired.shopping };
-    }, [tasks, recap, quotes, carts, habits, retired]);
+    }, [tasks, recap, quotes, carts, habits, goals, done, retired]);
 
     /* ---- derived ---- */
     var rankedToday = useMemo(function () {
@@ -1633,6 +1925,19 @@
       return QD.quoteForDay(quoteList, today);
     }, [quoteList, today]);
     var cartList = useMemo(function () { return QD.cartsNewestFirst(carts); }, [carts]);
+    /* Recomputed when a tick changes what the ledger or the task list says —
+       not on unrelated renders, and not duplicated into the goals themselves. */
+    var goalSplit = useMemo(function () {
+      return QD.splitGoals(goals, tasks.items, done, habits);
+    }, [goals, tasks.items, done, habits]);
+    /* One-off tasks only. A habit's instance is minted fresh each morning and
+       cleared at the rollover, so linking one as a task would hand the goal a
+       checklist item that disappears overnight — link the habit itself. */
+    var openTasks = useMemo(function () {
+      return tasks.items.filter(function (t) {
+        return !t.completedAt && !QD.isHabitTask(t);
+      }).slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
+    }, [tasks.items]);
     /* Newest last, so the list does not reshuffle as habits are added. */
     var habitList = useMemo(function () {
       return habits.habits.slice().sort(function (a, b) {
@@ -1782,7 +2087,11 @@
         snapshot: snapshot, onRestore: restore }) : null,
       taskSheet);
 
-    function home() { go("a-in", function () { setBriefOpen(false); setRoute("home"); }); }
+    function home() {
+      go("a-in", function () {
+        setBriefOpen(false); setOpenGoalId(null); setRoute("home");
+      });
+    }
 
     /* The morning brief belongs to Tasks: it opens the first time Tasks is
        visited each day, and is reachable from its header after that. */
@@ -1892,6 +2201,63 @@
     if (route === "recap") {
       return h(React.Fragment, null,
         h(RecapApp, { key: nav.n, anim: nav.anim, onBack: home, days: recapWeek, today: today }), overlays);
+    }
+    if (route === "goals") {
+      var goalSheet = editingGoal ? h(GoalSheet, {
+        key: editingGoal,
+        goal: editingGoal === "new" ? null
+          : goals.goals.filter(function (g) { return g.id === editingGoal; })[0],
+        today: today,
+        onClose: function () { setEditingGoal(null); },
+        onSave: function (changes) {
+          saveGoal(editingGoal === "new" ? null : editingGoal, changes);
+        }
+      }) : null;
+      var linked = linkingGoal
+        ? goals.goals.filter(function (g) { return g.id === linkingGoal; })[0] : null;
+      var linkSheet = linked ? h(LinkPicker, {
+        key: linked.id,
+        tasks: linked.linkedTasks, habits: linked.linkedHabits,
+        allTasks: openTasks, allHabits: habitList,
+        onClose: function () { setLinkingGoal(null); },
+        onSave: function (tks, hbs) { linkToGoal(linked.id, tks, hbs); }
+      }) : null;
+      var sheets = h(React.Fragment, null, goalSheet, linkSheet,
+        confirming ? h(Confirm, confirming) : null);
+
+      var openGoal = openGoalId
+        ? goals.goals.filter(function (g) { return g.id === openGoalId; })[0] : null;
+      if (openGoal) {
+        return h(React.Fragment, null,
+          h(GoalScreen, { key: nav.n, anim: nav.anim, goal: openGoal, today: today,
+            items: tasks.items, done: done, habits: habits,
+            onBack: function () { go("a-pop", function () { setOpenGoalId(null); }); },
+            onLink: function () { setLinkingGoal(openGoal.id); },
+            onUnlink: function (kind, lid) { unlinkFromGoal(openGoal.id, kind, lid); },
+            onToggleDone: function () { toggleGoalDone(openGoal.id); },
+            onEdit: function () { setEditingGoal(openGoal.id); },
+            onDelete: function () {
+              setConfirming({
+                title: "Delete this goal?",
+                lead: "\u201c" + openGoal.title + "\u201d goes.",
+                detail: "Everything it was watching stays exactly as it is — no task or habit is touched. There is no undo for the goal itself.",
+                confirmLabel: "Delete it",
+                onConfirm: function () {
+                  deleteGoal(openGoal.id);
+                  go("a-pop", function () { setOpenGoalId(null); });
+                },
+                onClose: function () { setConfirming(null); }
+              });
+            } }),
+          sheets, overlays);
+      }
+      return h(React.Fragment, null,
+        h(GoalsApp, { key: nav.n, anim: nav.anim, today: today,
+          split: goalSplit, items: tasks.items, done: done, habits: habits,
+          onBack: home,
+          onNew: function () { setEditingGoal("new"); },
+          onOpen: function (id) { go("a-push", function () { setOpenGoalId(id); }); } }),
+        sheets, overlays);
     }
     if (route === "habits") {
       var habitSheet = editingHabit ? h(HabitSheet, {

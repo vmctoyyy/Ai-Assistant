@@ -9,8 +9,8 @@ deployment carries that branch as its ref, and none has ever been cut for a
 `main` commit. So the push to the branch is what reaches the phone. Do not
 "fix" this by pushing only to `main` — that would deploy nothing.
 
-The app is a home screen plus four apps: **Tasks**, **Recap**, **Quotes**,
-**Shopping** (carts), and two non-tappable placeholders. Home is a fixed
+The app is a home screen plus five apps: **Tasks**, **Recap**, **Quotes**,
+**Shopping** (carts), **Goals**, and one non-tappable placeholder. Home is a fixed
 non-scrolling page — a 25% header (date + the day's quote) over a 75% grid of
 six icons. **Habits** is a fifth app reached from the Tasks hot bar rather than
 the home grid — that was the user's explicit choice, so do not promote it to a
@@ -214,6 +214,35 @@ worker not applying itself, which is fixed under Non-negotiables below.)
   on the last day of a shorter month rather than skipping February.
 - **Days are stored 0–6 from Sunday but always read Mon–Sun** (`weekOrder`).
   Sorting them numerically for display gives "Sun/Sat", which is wrong.
+- **A goal owns nothing.** It names existing tasks and habits and reads their
+  state; deleting one takes the container and leaves every task and habit
+  untouched — there are assertions for that. Nothing in the goal actions
+  writes to a task or a habit.
+- **The completions ledger (`done`) exists because nothing else records what
+  was finished.** `rollDay` deletes a completed task outright at midnight, and
+  the recap archive keeps only a title — no `habitId` — pruned at 60 days. So
+  a goal's checklist would empty itself overnight and a habit count would have
+  nothing to count. The ledger is written by the same tick that completes the
+  task (`recordCompletion` in `toggleTask`) and unwritten by the tick that
+  undoes it, so it cannot drift: still one source of truth, written down once
+  centrally, not copied per goal. Habit entries are keyed
+  `habitId:slotId:genOn`, so ticking one morning's gym twice records it once
+  and two slots on one day both count.
+- **Past completions are unrecoverable**, because nothing was recording them.
+  Counts necessarily start when the ledger did. This suits the spec's
+  "completions since the goal was created" rule, but a goal linked to a habit
+  cannot be backdated.
+- **`pruneDone` is what stops the ledger growing for ever**: a task entry is
+  kept only while a goal points at it or the task is still on the list; habit
+  entries live two years. It runs at boot, against the goals — not the task
+  list — or it would drop exactly the entries goals need.
+- **Every linked thing counts once**, a habit needing thirty sessions no more
+  than a single task. A goal with nothing linked sits at zero and is never
+  automatically done.
+- **A habit's own generated task is not offered in the task picker.** It is
+  minted fresh each morning and cleared at the rollover, so linking one as a
+  task would hand the goal a checklist item that disappears overnight — the
+  habit itself is the thing to link.
 - **Reminders are calendar events, not push.** iOS Web Push needs a server
   signing with VAPID keys; this app has no server, and Notification Triggers
   is not in Safari. `buildICS` writes a `VALARM` at `-PT30M`.
@@ -293,6 +322,14 @@ now forces the insets on with an injected style and re-checks the shell — the
 bubble still clearing the notch and the home indicator, the footer still on
 screen, the body still scrolling, nothing overflowing sideways. Keep that
 block; it is the only thing exercising the device's real layout.
+
+**`.screen-body` carries no padding of its own.** Every block a screen puts
+in it sets its own `1.125rem` horizontal inset, and a block that forgets runs
+to the bubble edge and clips — which is what happened to the goal header, and
+was already quietly true of the whole Habits screen. Assertions measure the
+*content* (`.goal-h`, `.meter`, `.link-row`), not the container: a full-width
+wrapper that carries the padding is doing its job and its own box legitimately
+spans the width.
 
 **Content must clear the bubble's corner sweep.** The 30px radius means
 anything within about two thirds of that of the top or bottom edge reads as

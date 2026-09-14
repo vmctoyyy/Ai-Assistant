@@ -217,6 +217,73 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 .sbd-name{font-size:.9375rem;color:var(--ink)}
 .sbd-why{font-size:.75rem;color:var(--ink-3)}
 
+/* ---- goals ---- */
+.meter{
+  height:6px;border-radius:999px;background:var(--line);overflow:hidden;
+}
+.meter-fill{
+  height:100%;border-radius:999px;background:var(--accent);
+  transition:width .4s var(--ease-ios);
+}
+/* Nested in a .sec for the Done group, which supplies its own inset. */
+.screen-body > .goal-list{padding:0 1.125rem}
+.goal-list{display:flex;flex-direction:column;gap:.75rem}
+.goal-bubble{
+  background:var(--surface);border:1px solid var(--line);border-radius:18px;
+}
+.goal-body{
+  width:100%;text-align:left;padding:.9375rem 1rem 1rem;border-radius:18px;
+  display:flex;flex-direction:column;gap:.5rem;
+}
+.goal-body:active{background:var(--surface-2)}
+.goal-top{display:flex;align-items:baseline;justify-content:space-between;gap:.75rem}
+.goal-name{font-size:1rem;color:var(--ink);min-width:0}
+.goal-pct{
+  font-size:.8125rem;color:var(--ink-2);font-variant-numeric:tabular-nums;flex:none;
+}
+.goal-pct.big{font-size:1.125rem;color:var(--accent);font-weight:600}
+.goal-meta{
+  display:flex;gap:.75rem;flex-wrap:wrap;font-size:.75rem;color:var(--ink-3);
+}
+.goal-tf{font-size:.75rem;color:var(--ink-3)}
+.goal-done{margin-top:1.5rem}
+.goal-done .goal-bubble{opacity:.72}
+
+.goal-head{padding:.25rem 1.125rem 1.25rem;display:flex;flex-direction:column;gap:.625rem}
+.goal-h{
+  font-family:var(--serif);font-size:1.5rem;font-weight:400;line-height:1.2;
+  color:var(--ink);margin:0;
+}
+.goal-target{margin:0;font-size:.8125rem;color:var(--ink-3)}
+.goal-acts{display:flex;justify-content:space-between;gap:1rem;padding-top:1rem}
+.btn.wide{width:100%;display:flex;align-items:center;justify-content:center;gap:.4375rem}
+.btn.wide.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+
+.link-list{display:flex;flex-direction:column;gap:.625rem;margin-bottom:1rem}
+.link-row{
+  display:flex;align-items:center;gap:.625rem;
+  border:1px solid var(--line);border-radius:14px;padding:.6875rem .5rem .6875rem .875rem;
+  background:var(--surface);
+}
+.link-row.gone{opacity:.62}
+.lk-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:.1875rem}
+.lk-title{font-size:.9375rem;color:var(--ink);display:flex;align-items:center;gap:.0625rem}
+.lk-state{font-size:.75rem;color:var(--ink-3);font-variant-numeric:tabular-nums}
+
+
+/* picking what a goal watches */
+.picklist{display:flex;flex-direction:column;gap:.375rem}
+.pickwrap{display:flex;flex-direction:column;gap:.375rem}
+.pickrow{
+  display:flex;align-items:center;gap:.625rem;width:100%;text-align:left;
+  min-height:48px;padding:.5rem .75rem;border-radius:12px;
+  border:1px solid var(--line);background:var(--ground);color:var(--ink-2);
+}
+.pickrow.on{border-color:var(--accent);background:var(--accent-soft);color:var(--ink)}
+.pk-title{flex:1;min-width:0;font-size:.9375rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pk-count{display:flex;align-items:center;gap:.5rem;padding:0 .75rem .25rem 2.5rem}
+.pk-count .field.num{max-width:5.5rem}
+
 /* ---- the hot bar: the Tasks footer at rest ---- */
 .hotbar{
   max-width:var(--wrap);margin:0 auto;display:flex;gap:.5rem;align-items:stretch;
@@ -243,12 +310,12 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 .row.done .habitmark{opacity:.55}
 
 /* ---- habits ---- */
-.habit-lead{padding:.25rem 0 1rem}
+.habit-lead{padding:.25rem 1.125rem 1rem}
 .habit-lead .btn{width:100%;display:flex;align-items:center;justify-content:center;gap:.4375rem}
-.habit-empty{padding:.5rem 0 1rem}
+.habit-empty{padding:.5rem 1.125rem 1rem}
 .habit-empty p{margin:0 0 .75rem}
 .habit-empty .muted{color:var(--ink-3);font-size:.875rem;line-height:1.55}
-.habit-list{display:flex;flex-direction:column;gap:.75rem}
+.habit-list{display:flex;flex-direction:column;gap:.75rem;padding:0 1.125rem}
 .habit-bubble{
   display:flex;align-items:stretch;gap:.5rem;
   background:var(--surface);border:1px solid var(--line);border-radius:18px;
@@ -278,7 +345,7 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 }
 .habit-toggle.on{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
 .habit-foot{
-  margin:1.25rem 0 0;font-size:.75rem;color:var(--ink-3);line-height:1.6;
+  margin:1.25rem 1.125rem 0;font-size:.75rem;color:var(--ink-3);line-height:1.6;
 }
 .habit-preview{
   margin:.75rem 0 0;font-size:.8125rem;color:var(--ink-2);
