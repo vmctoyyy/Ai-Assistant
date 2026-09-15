@@ -235,7 +235,10 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 }
 .goal-body:active{opacity:.85}
 .goal-top{display:flex;align-items:center;justify-content:space-between;gap:.75rem}
-.goal-name{font-size:1rem;color:var(--ink);min-width:0}
+.goal-name{
+  font-size:1rem;color:var(--ink);min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
 .goal-state{font-size:.8125rem;color:var(--ink-3)}
 .goal-state.big{margin:0;font-size:.875rem;color:var(--ink-2)}
 
@@ -313,6 +316,58 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 @media (prefers-reduced-motion:reduce){
   .goal-bubble,.goal-head{transition:none}
   .band-alight .flame{animation:none}
+}
+
+/* ---- streaks ----
+   The one place in the app that works on loss: it counts up, it warns while
+   the day runs out, and a missed day takes it back to nothing. Deliberate,
+   asked for by name, and kept to the goal screens. */
+.goal-badges{display:flex;align-items:center;gap:.5rem;flex:none}
+.goal-badges.wide{margin-top:.25rem}
+.goal-band{
+  font-size:.6875rem;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ink-3);
+}
+.streak{
+  display:inline-flex;align-items:center;gap:.25rem;
+  font-size:.75rem;font-weight:600;color:var(--accent);
+  background:var(--accent-soft);border:1px solid transparent;
+  border-radius:999px;padding:.125rem .4375rem;white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+}
+.streak-mark{font-size:.8125rem;line-height:1}
+.streak.at-risk{
+  color:#8A6A2F;background:#FBF0DA;border-color:#E6CFA8;
+}
+.streak.at-risk .streak-mark{animation:tip 2.4s ease-in-out infinite}
+@keyframes tip{
+  0%,70%,100%{transform:rotate(0)}
+  80%{transform:rotate(180deg)}
+  90%{transform:rotate(180deg)}
+}
+.streak-note{
+  margin:.375rem 0 0;font-size:.75rem;color:var(--ink-2);
+}
+
+/* ---- momentum bullets: fast and clipped ---- */
+.bullets{display:flex;flex-direction:column;gap:.375rem}
+.bullet{
+  display:flex;align-items:baseline;gap:.4375rem;
+  font-size:.875rem;color:var(--ink-2);
+}
+.bul-dot{color:var(--ink-3);flex:none}
+.bul-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bul-when{margin-left:auto;flex:none;font-size:.75rem;color:var(--ink-3)}
+
+/* ---- the recap paragraph: something to read ---- */
+.recap-goals{padding:0 1.125rem;margin-bottom:1.75rem}
+.goal-prose{
+  margin:0;font-family:var(--serif);font-size:1rem;line-height:1.7;
+  color:var(--ink-2);text-wrap:pretty;
+}
+
+@media (prefers-reduced-motion:reduce){
+  .streak.at-risk .streak-mark{animation:none}
 }
 
 /* ---- the hot bar: the Tasks footer at rest ---- */

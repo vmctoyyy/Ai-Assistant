@@ -729,6 +729,12 @@
       p({ className: "recap-lead" }, total === 0
         ? "Nothing finished in the last seven days."
         : total + (total === 1 ? " thing" : " things") + " finished in the last seven days."),
+
+      /* Prose, not a report — something to read rather than scan. Absent
+         entirely when nothing fed a goal today; the absence is not a message,
+         so there is no empty state here. */
+      props.goalProse ? div({ className: "recap-goals" },
+        p({ className: "goal-prose" }, props.goalProse)) : null,
       days.map(function (d) {
         var dd = QD.keyToDate(d.date);
         var label = d.date === props.today ? "Today"
@@ -1236,6 +1242,18 @@
         d: "M12 12c.4 1.5-.9 2-1.3 2.9-.2.5-.2 1 0 1.5a2.1 2.1 0 0 0 4-.9c0-1-.7-1.7-1.3-2.3-.5-.5-1.2-.9-1.4-1.2z" }));
   }
 
+  /* The streak. A real one: it counts up, it warns while the day runs out,
+     and when a day is missed it is simply gone. Nothing is said about the
+     loss — the number's absence is the whole of it. */
+  function Streak(props) {
+    var st = props.streak;
+    if (!st.alive) return null;
+    return span({ className: "streak" + (st.atRisk ? " at-risk" : ""),
+      "aria-label": "Streak: " + QD.streakLabel(st) },
+      span({ className: "streak-mark" }, st.atRisk ? "\u231b" : "\uD83D\uDD25"),
+      span({ className: "streak-n" }, QD.streakLabel(st)));
+  }
+
   /* One picker, used by both the task sheet and the habit sheet. Most things
      have no goal, so "None" leads and nothing is preselected. */
   function GoalPicker(props) {
@@ -1336,7 +1354,10 @@
           "aria-label": "Open goal: " + g.name },
           div({ className: "goal-top" },
             span({ className: "goal-name" }, g.name),
-            g.active && band.id === "alight" ? h(Flame) : null),
+            div({ className: "goal-badges" },
+              g.active ? h(Streak, {
+                streak: QD.goalStreak(g, props.activity, props.today, props.now) }) : null,
+              g.active && band.id === "alight" ? h(Flame) : null)),
           div({ className: "goal-state" }, QD.momentumLine(g, props.activity, props.today))));
     }
     var list = props.list;
@@ -1372,6 +1393,9 @@
     var s1 = useState(RECORD_PAGE), shown = s1[0], setShown = s1[1];
     var band = QD.momentumBand(QD.goalMomentum(goal, props.activity, props.today));
     var record = QD.goalRecord(props.activity, goal.id, 0, shown);
+    var streak = QD.goalStreak(goal, props.activity, props.today, props.now);
+    var recent = QD.recentActivity(props.activity, goal.id, 5);
+    var boosts = QD.goalBoosts(goal.id, props.items || [], props.today, 3);
 
     return h(Screen, { title: "Goal", onBack: props.onBack, anim: props.anim },
       div({ className: "goal-head band-" + (goal.active ? band.id : "paused") },
@@ -1379,7 +1403,42 @@
           h2({ className: "goal-h" }, goal.name),
           goal.active && band.id === "alight" ? h(Flame) : null),
         goal.description ? p({ className: "goal-desc" }, goal.description) : null,
-        p({ className: "goal-state big" }, QD.momentumLine(goal, props.activity, props.today))),
+        div({ className: "goal-badges wide" },
+          span({ className: "goal-band" }, goal.active ? band.label : "Paused"),
+          goal.active ? h(Streak, { streak: streak }) : null),
+        streak.alive && streak.atRisk
+          ? p({ className: "streak-note" },
+              "Do one thing on this today and the run carries on.")
+          : null),
+
+      /* The five most recent, hoisted above the full record: fast and clipped,
+         the opposite register from the recap's prose. */
+      recent.length === 0 ? section({ className: "sec" },
+        p({ className: "empty-note" }, "Nothing logged toward this yet.")) : null,
+
+      recent.length ? section({ className: "sec" },
+        h(Eyebrow, { title: "What's kept this going" }),
+        div({ className: "bullets" }, recent.map(function (a) {
+          return div({ className: "bullet", key: a.id },
+            span({ className: "bul-dot" }, "\u2022"),
+            span({ className: "bul-title" }, a.title),
+            span({ className: "bul-when" }, QD.whenLabel(a.completedAt, props.today)));
+        }))) : null,
+
+      /* Only what is already linked and not yet done. Never an invitation to
+         make more work, and it says nothing about what finishing one would do
+         to the momentum. */
+      boosts.length ? section({ className: "sec" },
+        h(Eyebrow, { title: "Ways to boost this" }),
+        div({ className: "tasks" }, boosts.map(function (t) {
+          return h(TaskRow, {
+            key: "b" + t.id, task: t, today: props.today, now: props.now,
+            removeLabel: "Unlink",
+            onToggle: function () { props.onToggle(t.id); },
+            onDelete: function () { props.onUnlinkTask(t.id); },
+            onOptions: function () { props.onOptions(t.id); }
+          });
+        }))) : null,
 
       section({ className: "sec" },
         h(Eyebrow, { title: "Feeding this",
@@ -1937,6 +1996,11 @@
     var goalList = useMemo(function () {
       return QD.goalsByMomentum(goals, today);
     }, [goals, today]);
+    /* Generated once per day rather than on every open: it is a pure function
+       of the log and the date, so the memo is the cache. */
+    var goalProse = useMemo(function () {
+      return QD.recapGoalProse(goals, today);
+    }, [goals, today]);
     var activeGoals = useMemo(function () {
       return goals.goals.filter(function (g) { return g.active; });
     }, [goals]);
@@ -2210,7 +2274,8 @@
     }
     if (route === "recap") {
       return h(React.Fragment, null,
-        h(RecapApp, { key: nav.n, anim: nav.anim, onBack: home, days: recapWeek, today: today }), overlays);
+        h(RecapApp, { key: nav.n, anim: nav.anim, onBack: home, days: recapWeek,
+          today: today, goalProse: goalProse }), overlays);
     }
     if (route === "goals") {
       var goalSheet = editingGoal ? h(GoalSheet, {
@@ -2243,7 +2308,7 @@
             .map(function (t) { return { kind: "task", task: t }; }));
         return h(React.Fragment, null,
           h(GoalScreen, { key: nav.n, anim: nav.anim, goal: openGoal, today: today, now: clock,
-            activity: goals.activity, linked: linkedRows,
+            activity: goals.activity, linked: linkedRows, items: tasks.items,
             onBack: function () { go("a-pop", function () { setOpenGoalId(null); }); },
             onToggle: toggleTask, onOptions: setEditingId,
             onLink: function () { setLinkingGoal(openGoal.id); },
@@ -2267,7 +2332,7 @@
           gSheets, overlays);
       }
       return h(React.Fragment, null,
-        h(GoalsApp, { key: nav.n, anim: nav.anim, today: today,
+        h(GoalsApp, { key: nav.n, anim: nav.anim, today: today, now: clock,
           list: goalList, activity: goals.activity,
           onBack: home,
           onNew: function () { setEditingGoal("new"); },

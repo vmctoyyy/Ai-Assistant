@@ -1114,9 +1114,13 @@ console.log('\n##### goals: momentum #####');
   check('a new goal starts dormant',
     (await pg.locator('.goal-head').getAttribute('class')).includes('band-dormant'),
     await pg.locator('.goal-head').getAttribute('class'));
-  check('and says so without a number',
-    (await pg.locator('.goal-state.big').innerText()) === 'Dormant — nothing logged yet',
-    await pg.locator('.goal-state.big').innerText());
+  check('and says so as a band, not a number',   /* uppercased by CSS */
+    /^dormant$/i.test(await pg.locator('.goal-band').innerText()),
+    await pg.locator('.goal-band').innerText());
+  check('with a quiet line rather than a bare label',
+    /nothing logged toward this yet/i.test(await pg.locator('.screen-body').innerText()));
+  check('and no streak until something is done',
+    await pg.locator('.streak').count() === 0);
   check('no percentage anywhere on the screen',
     !/%/.test(await pg.locator('.screen-body').innerText()));
   const goalId = (await store('goals')).goals[0].id;
@@ -1204,8 +1208,23 @@ console.log('\n##### goals: momentum #####');
   await pg.waitForSelector('.goal-list', { timeout: 5000 });
   await pg.locator('.goal-body').first().tap();
   await pg.waitForTimeout(500);
-  check('the state leads, in words', /Dormant|Warm|Ember|Alight/.test(
-    await pg.locator('.goal-state.big').innerText()));
+  check('the state leads, in words', /dormant|warm|ember|alight/i.test(
+    await pg.locator('.goal-band').innerText()));
+  check('a long streak badge never pushes the row past the bubble', await pg.evaluate(() => {
+    const b = document.querySelector('.bubble').getBoundingClientRect();
+    return [...document.querySelectorAll('.goal-top')].every(el => {
+      const r = el.getBoundingClientRect();
+      return r.right <= b.right - 8 && r.left >= b.left + 8;
+    }) && document.documentElement.scrollWidth <= innerWidth + 1;
+  }));
+  check('a streak appears once a day has been fed',
+    (await pg.locator('.streak-n').innerText()) === '1 day',
+    await pg.locator('.streak-n').innerText());
+  check('the bullets hoist the most recent work up top',
+    /Swim a kilometre/.test(await pg.locator('.bullets').innerText()));
+  check('each bullet says when, in words not numbers',
+    /this morning|this afternoon|this evening/.test(await pg.locator('.bul-when').first().innerText()),
+    await pg.locator('.bul-when').first().innerText());
   check('what is feeding it is listed',
     await pg.locator('.sec').filter({ hasText: 'FEEDING THIS' }).locator('.row, .link-row').count() === 1);
   check('the record names what was done',
@@ -1235,8 +1254,8 @@ console.log('\n##### goals: momentum #####');
   await pg.waitForTimeout(450);
   check('pausing freezes it', (await store('goals')).goals[0].active === false);
   check('and it says so plainly',
-    (await pg.locator('.goal-state.big').innerText()) === 'Paused',
-    await pg.locator('.goal-state.big').innerText());
+    /^paused$/i.test(await pg.locator('.goal-band').innerText()),
+    await pg.locator('.goal-band').innerText());
   await pg.getByRole('button', { name: 'Resume' }).tap();
   await pg.waitForTimeout(450);
   check('resuming brings it back', (await store('goals')).goals[0].active === true);

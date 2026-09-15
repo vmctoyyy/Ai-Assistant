@@ -261,6 +261,34 @@ worker not applying itself, which is fixed under Non-negotiables below.)
 - **The row control on a goal screen unlinks, and says so.** `TaskRow` takes
   `removeLabel`; without it the aria-label read "Delete: …" while the button
   unlinked, which told a screen reader the wrong thing.
+- **Streaks are the one exception to the flat-tone rule, and they are
+  deliberate.** The user asked for a Snapchat streak by name, was told it
+  contradicts every tone rule in this file and the momentum spec's own "no
+  streak language framed as something to protect", and chose it anyway. So
+  `goalStreak` counts consecutive fed days, warns with an hourglass and hours
+  remaining while the day runs out, and goes to zero when a day is missed.
+  **The loss-aversion is confined to the streak badge.** Nothing narrates the
+  break — the number simply is not there any more — and the recap prose and
+  the boost block stay calm. Do not let it spread.
+- **Two registers on purpose.** The recap paragraph is flowing prose, built
+  from whole-clause templates picked deterministically from the date
+  (`recapGoalProse`), so wording moves day to day and never changes under a
+  re-read. The goal screen is clipped bullets. Do not make either read like
+  the other. Only goals fed *today* appear in the prose; a quiet goal is
+  simply absent and the section vanishes entirely when nothing was fed — that
+  absence is not a message, so there is no empty state for it.
+- **The prose may name a band and say "four days in a row".** The spec's "no
+  counts or band names" reads as "no numeric readouts", since its own worked
+  example uses both; the rule is really no data-as-labels.
+- **A rise in band gets a clause; a drop never does.**
+- **Task titles in prose keep the user's words**, except a leading "The", "A"
+  or "An", which reads wrong mid-sentence (`inSentence`). Nothing else is
+  touched, or "MRI in Napier" and "Anna's birthday" get mangled.
+- **"Ways to boost this" only ever lists things already linked and not yet
+  done**, and never says what finishing one would do to the momentum. When
+  there is nothing outstanding the block is absent — it must never suggest
+  making more work. Those two guardrails are what keep it an offer rather
+  than the progress bar in new clothes.
 - **The record is the point of the feature.** It survives the underlying task
   being edited or deleted because each row snapshots the title at completion
   time, and it pages (`goalRecord(activity, goalId, offset, limit)`) because

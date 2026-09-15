@@ -1671,5 +1671,219 @@ t("changing a habit's goal only reaches instances minted afterwards", function (
   assert.strictEqual(two.added[0].goalId, "g2");
 });
 
+
+console.log("\nstreaks");
+function actOn(goalId, days, title) {
+  return days.map(function (d, i) {
+    return { id: goalId + i, goalId: goalId, sourceType: "task", sourceId: "s" + i,
+             title: title || "A thing", completedAt: ms(d, 8), points: 6, base: 6 };
+  });
+}
+var SG = QD.makeGoal("Fitness", { now: ms("2026-08-01", 9) });
+t("consecutive days fed make a streak", function () {
+  var a = actOn(SG.id, ["2026-09-07", "2026-09-08", "2026-09-09"]);
+  var st = QD.goalStreak(SG, a, "2026-09-09", 9 * 60);
+  assert.strictEqual(st.days, 3);
+  assert.strictEqual(st.alive, true);
+  assert.strictEqual(st.fedToday, true);
+  assert.strictEqual(st.atRisk, false);
+});
+t("a gap breaks the run, and only the latest run counts", function () {
+  var a = actOn(SG.id, ["2026-09-01", "2026-09-02", "2026-09-08", "2026-09-09"]);
+  assert.strictEqual(QD.goalStreak(SG, a, "2026-09-09", 0).days, 2);
+});
+t("it stays alive on the day after, and says how long is left", function () {
+  var a = actOn(SG.id, ["2026-09-08", "2026-09-09"]);
+  var st = QD.goalStreak(SG, a, "2026-09-10", 19 * 60);
+  assert.strictEqual(st.days, 2);
+  assert.strictEqual(st.alive, true);
+  assert.strictEqual(st.atRisk, true);
+  assert.strictEqual(st.hoursLeft, 5);
+  assert.strictEqual(QD.streakLabel(st), "2 days · 5 hours left");
+});
+t("a missed day takes it back to nothing", function () {
+  var a = actOn(SG.id, ["2026-09-08", "2026-09-09"]);
+  var st = QD.goalStreak(SG, a, "2026-09-11", 9 * 60);
+  assert.strictEqual(st.days, 0);
+  assert.strictEqual(st.alive, false);
+  assert.strictEqual(QD.streakLabel(st), "", "and nothing is said about what went");
+});
+t("no activity at all is not a streak", function () {
+  assert.strictEqual(QD.goalStreak(SG, [], "2026-09-09", 0).days, 0);
+});
+t("one day reads as one day", function () {
+  var a = actOn(SG.id, ["2026-09-09"]);
+  assert.strictEqual(QD.streakLabel(QD.goalStreak(SG, a, "2026-09-09", 0)), "1 day");
+});
+t("the hours left run down through the day", function () {
+  var a = actOn(SG.id, ["2026-09-09"]);
+  assert.strictEqual(QD.goalStreak(SG, a, "2026-09-10", 0).hoursLeft, 24);
+  assert.strictEqual(QD.goalStreak(SG, a, "2026-09-10", 23 * 60 + 30).hoursLeft, 1);
+});
+t("another goal's days are not this one's", function () {
+  var a = actOn("other", ["2026-09-08", "2026-09-09"]);
+  assert.strictEqual(QD.goalStreak(SG, a, "2026-09-09", 0).days, 0);
+});
+
+console.log("\nthe recap paragraph");
+function proseState(spec, goals) {
+  var act = [];
+  Object.keys(spec).forEach(function (gid) {
+    spec[gid].forEach(function (row, i) {
+      act.push({ id: gid + i, goalId: gid, sourceType: "task", sourceId: gid + i,
+                 title: row[1], completedAt: ms(row[0], 8) + i, points: 6, base: 6 });
+    });
+  });
+  return QD.normGoals({ goals: goals, activity: act });
+}
+var PG1 = QD.makeGoal("Fitness", { now: ms("2026-08-01", 9) });
+var PG2 = QD.makeGoal("Side project", { now: ms("2026-08-01", 9) });
+t("a goal fed today is named, with what actually got done", function () {
+  var st = proseState({}, [PG1]);
+  st.activity = [{ id: "a", goalId: PG1.id, sourceType: "task", sourceId: "t",
+    title: "the meal prep", completedAt: ms(TODAY, 8), points: 6, base: 6 }];
+  var out = QD.recapGoalProse(st, TODAY);
+  assert.ok(out.indexOf("Fitness") >= 0, out);
+  assert.ok(out.indexOf("the meal prep") >= 0, out);
+});
+t("a quiet goal is simply absent, never mentioned as neglected", function () {
+  var st = proseState({}, [PG1, PG2]);
+  st.activity = [{ id: "a", goalId: PG1.id, sourceType: "task", sourceId: "t",
+    title: "a swim", completedAt: ms(TODAY, 8), points: 6, base: 6 }];
+  var out = QD.recapGoalProse(st, TODAY);
+  assert.ok(out.indexOf("Side project") === -1, out);
+  assert.ok(!/neglect|quiet|behind|missed|cooling|slipp/i.test(out), out);
+});
+t("nothing fed today means no paragraph at all", function () {
+  var st = proseState({}, [PG1, PG2]);
+  assert.strictEqual(QD.recapGoalProse(st, TODAY), "",
+    "not an empty state, and not a sentence about there being nothing");
+});
+t("at most three goals are named, and the rest get a clause", function () {
+  var gs = [], act = [];
+  for (var i = 0; i < 5; i++) {
+    var g = QD.makeGoal("Goal " + i, { now: ms("2026-08-01", 9) });
+    gs.push(g);
+    act.push({ id: "a" + i, goalId: g.id, sourceType: "task", sourceId: "t" + i,
+      title: "thing " + i, completedAt: ms(TODAY, 8) + i, points: 6, base: 6 });
+  }
+  var out = QD.recapGoalProse(QD.normGoals({ goals: gs, activity: act }), TODAY);
+  var named = gs.filter(function (g) { return out.indexOf(g.name) >= 0; });
+  assert.strictEqual(named.length, 3, out);
+  assert.ok(/others moved|rest had|ticked over/i.test(out), out);
+});
+t("the wording is stable on a re-read but moves day to day", function () {
+  var mk = function (day) {
+    var st = QD.normGoals({ goals: [PG1], activity: [{ id: "a", goalId: PG1.id,
+      sourceType: "task", sourceId: "t", title: "a swim",
+      completedAt: ms(day, 8), points: 6, base: 6 }] });
+    return QD.recapGoalProse(st, day);
+  };
+  assert.strictEqual(mk(TODAY), mk(TODAY), "the same day reads the same every time");
+  var seen = {};
+  ["2026-09-09","2026-09-10","2026-09-11","2026-09-12","2026-09-13"].forEach(function (d) {
+    seen[mk(d)] = true;
+  });
+  assert.ok(Object.keys(seen).length > 1, "and different days do not all read alike");
+});
+t("a goal that rose a band gets a clause; a drop is never mentioned", function () {
+  var g = QD.makeGoal("Fitness", { now: ms("2026-09-08", 9) });
+  var act = [];
+  for (var i = 0; i < 4; i++) {
+    act.push({ id: "a" + i, goalId: g.id, sourceType: "task", sourceId: "t" + i,
+      title: "a swim", completedAt: ms(TODAY, 8) + i, points: 6, base: 6 });
+  }
+  var out = QD.recapGoalProse(QD.normGoals({ goals: [g], activity: act }), TODAY);
+  assert.ok(/warm|ember|alight/i.test(out), out);
+  assert.ok(!/dropped|fell|cooled|down to/i.test(out), out);
+});
+t("the prose carries no exclamation, no praise and no percentage", function () {
+  var gs = [PG1, PG2], act = [];
+  ["2026-09-07","2026-09-08","2026-09-09"].forEach(function (d, i) {
+    act.push({ id: "a" + i, goalId: PG1.id, sourceType: "task", sourceId: "t" + i,
+      title: "a swim", completedAt: ms(d, 8), points: 6, base: 6 });
+  });
+  act.push({ id: "b", goalId: PG2.id, sourceType: "task", sourceId: "u",
+    title: "the copy", completedAt: ms(TODAY, 9), points: 6, base: 6 });
+  var out = QD.recapGoalProse(QD.normGoals({ goals: gs, activity: act }), TODAY);
+  assert.ok(out.indexOf("!") === -1, out);
+  assert.ok(out.indexOf("%") === -1, out);
+  assert.ok(!/great|well done|amazing|keep it up|nice work|proud/i.test(out), out);
+});
+t("it reads as sentences, not a list", function () {
+  var st = QD.normGoals({ goals: [PG1], activity: [{ id: "a", goalId: PG1.id,
+    sourceType: "task", sourceId: "t", title: "a swim",
+    completedAt: ms(TODAY, 8), points: 6, base: 6 }] });
+  var out = QD.recapGoalProse(st, TODAY);
+  assert.ok(out.indexOf("•") === -1 && out.indexOf("\\n") === -1, out);
+  assert.ok(/\.$/.test(out.trim()), "and finishes its sentence: " + out);
+});
+
+console.log("\nbullets and boosts");
+t("the bullets are the most recent first, capped", function () {
+  var act = [];
+  for (var i = 0; i < 9; i++) {
+    act.push({ id: "a" + i, goalId: "g", sourceType: "task", sourceId: "t" + i,
+      title: "thing " + i, completedAt: ms(TODAY, 8) + i, points: 6, base: 6 });
+  }
+  var out = QD.recentActivity(act, "g", 5);
+  assert.strictEqual(out.length, 5);
+  assert.strictEqual(out[0].title, "thing 8");
+});
+t("when something happened reads plainly", function () {
+  assert.strictEqual(QD.whenLabel(ms(TODAY, 7), TODAY), "this morning");
+  assert.strictEqual(QD.whenLabel(ms(TODAY, 14), TODAY), "this afternoon");
+  assert.strictEqual(QD.whenLabel(ms(TODAY, 20), TODAY), "this evening");
+  assert.strictEqual(QD.whenLabel(ms("2026-09-08", 9), TODAY), "yesterday");
+  assert.strictEqual(QD.whenLabel(ms("2026-09-05", 9), TODAY), "Saturday");
+  assert.strictEqual(QD.whenLabel(ms("2026-08-20", 9), TODAY), "20 Aug");
+});
+t("boosts are things already on the goal and not yet done", function () {
+  var items = [
+    task("a", { importance: "nice" }), task("b", { importance: "must" }),
+    task("c", { completedAt: 1 }), task("d")
+  ];
+  items[0].goalId = "g"; items[1].goalId = "g"; items[2].goalId = "g";
+  var out = QD.goalBoosts("g", items, TODAY, 3);
+  assert.deepStrictEqual(ids(out), ["b", "a"], "done ones and unlinked ones are left out");
+});
+t("today's habit instance comes before the tasks", function () {
+  var hb = QD.normTask({ id: "h", title: "Gym", bucket: "today",
+    createdAt: ms(TODAY, 8) }, TODAY);
+  hb.habitId = "gym"; hb.slotId = "s"; hb.genOn = TODAY; hb.goalId = "g"; hb.dueTime = "06:00";
+  var t1 = task("t", { importance: "must" }); t1.goalId = "g";
+  assert.deepStrictEqual(ids(QD.goalBoosts("g", [t1, hb], TODAY, 3)), ["h", "t"]);
+});
+t("a habit instance from an earlier day is not offered again", function () {
+  var old = QD.normTask({ id: "h", title: "Gym", bucket: "today",
+    createdAt: ms("2026-09-08", 8) }, TODAY);
+  old.habitId = "gym"; old.slotId = "s"; old.genOn = "2026-09-08"; old.goalId = "g";
+  assert.deepStrictEqual(QD.goalBoosts("g", [old], TODAY, 3), []);
+});
+t("nothing outstanding means no block at all", function () {
+  var done1 = task("a", { completedAt: 1 }); done1.goalId = "g";
+  assert.deepStrictEqual(QD.goalBoosts("g", [done1], TODAY, 3), []);
+});
+t("boosts are capped at three", function () {
+  var items = [];
+  for (var i = 0; i < 6; i++) { var t1 = task("t" + i); t1.goalId = "g"; items.push(t1); }
+  assert.strictEqual(QD.goalBoosts("g", items, TODAY, 3).length, 3);
+});
+
+
+console.log("\nprose: the user's own words");
+t("a leading article reads right mid-sentence", function () {
+  assert.strictEqual(QD.inSentence("The early gym session"), "the early gym session");
+  assert.strictEqual(QD.inSentence("A long walk"), "a long walk");
+  assert.strictEqual(QD.inSentence("An hour of scales"), "an hour of scales");
+});
+t("anything that might be a name is left exactly as typed", function () {
+  assert.strictEqual(QD.inSentence("MRI in Napier"), "MRI in Napier");
+  assert.strictEqual(QD.inSentence("Ring Mum"), "Ring Mum");
+  assert.strictEqual(QD.inSentence("Theatre tickets"), "Theatre tickets",
+    "Theatre is not the article The");
+  assert.strictEqual(QD.inSentence("Anna's birthday"), "Anna's birthday");
+});
+
 console.log("\n" + pass + " passed, " + fail + " failed\n");
 process.exit(fail ? 1 : 0);
