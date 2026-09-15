@@ -97,6 +97,19 @@ for (const dev of ['iPhone SE', 'iPhone 13']) {
     homeGeo.tiles === 6 && homeGeo.tappable === 5,
     `${homeGeo.tiles}/${homeGeo.tappable}`);
   check('no text labels under the icons', homeGeo.gridText === '');
+  /* Centred against the quote above it, not against innerWidth — innerWidth
+     counts the scrollbar and sits a few pixels right of the layout centre. */
+  check('the quote says who said it, centred under it', await pg.evaluate(() => {
+    const q = document.querySelector('.hh-quote');
+    const src = document.querySelector('.hh-source');
+    if (!src) return 'no source line';
+    const qr = q.getBoundingClientRect(), sr = src.getBoundingClientRect();
+    const mid = (r) => (r.left + r.right) / 2;
+    return (sr.top >= qr.bottom - 1) && Math.abs(mid(sr) - mid(qr)) <= 1 &&
+      /^\u2014 \S/.test(src.innerText);
+  }) === true);
+  check('and the extra line does not push the header past its quarter',
+    Math.abs(homeGeo.headPct - 25) <= 1 && !homeGeo.scrolls, homeGeo.headPct + '%');
   check('date and quote are present',
     !!(await pg.locator('.hh-date').innerText()) && !!(await pg.locator('.hh-quote').innerText()));
   check('the three removed apps are gone from home',

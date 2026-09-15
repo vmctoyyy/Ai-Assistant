@@ -641,7 +641,11 @@
     return div({ className: "home" + (props.anim ? " " + props.anim : "") },
       div({ className: "home-head" },
         div({ className: "hh-date" }, nzDate(d)),
-        props.quote ? div({ className: "hh-quote" }, props.quote.text) : null),
+        props.quote ? div({ className: "hh-quote" }, props.quote.text) : null,
+        /* Who said it, under the quote. Absent when a quote has no source —
+           a bare dash on its own reads as a mistake. */
+        props.quote && props.quote.source
+          ? div({ className: "hh-source" }, "\u2014 " + props.quote.source) : null),
       div({ className: "home-grid" }, APP_TILES.map(function (tile) {
         var art = h("svg", {
           className: "tile-art", viewBox: "0 0 24 24", fill: "none",
