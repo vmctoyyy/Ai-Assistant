@@ -1885,5 +1885,40 @@ t("anything that might be a name is left exactly as typed", function () {
   assert.strictEqual(QD.inSentence("Anna's birthday"), "Anna's birthday");
 });
 
+
+console.log("\nreading the log without reading all of it");
+t("the bullets stop as soon as they have five", function () {
+  var act = [], reads = 0;
+  for (var i = 0; i < 500; i++) {
+    act.push({ id: "a" + i, goalId: i % 2 ? "g" : "other", sourceType: "task",
+      sourceId: "s" + i, title: "thing " + i, completedAt: ms(TODAY, 8) + i,
+      points: 6, base: 6 });
+  }
+  var out = QD.recentActivity(act, "g", 5);
+  assert.strictEqual(out.length, 5);
+  assert.strictEqual(out[0].title, "thing 499", "newest first");
+  assert.ok(out.every(function (a) { return a.goalId === "g"; }));
+});
+t("and the recap reads only today, not the whole history", function () {
+  var act = [];
+  ["2026-08-01", "2026-09-08", TODAY].forEach(function (d, i) {
+    for (var j = 0; j < 3; j++) {
+      act.push({ id: d + j, goalId: "g", sourceType: "task", sourceId: d + j,
+        title: d, completedAt: ms(d, 8) + j, points: 6, base: 6 });
+    }
+  });
+  var out = QD.activityOn(act, TODAY);
+  assert.strictEqual(out.length, 3);
+  assert.ok(out.every(function (a) { return a.title === TODAY; }));
+  assert.deepStrictEqual(QD.activityOn(act, "2026-09-01"), [], "a day with nothing");
+});
+t("the log is kept oldest-first, which is what the scans rely on", function () {
+  var st = QD.normGoals({ goals: [], activity: [
+    { id: "b", goalId: "g", sourceId: "b", completedAt: 200, points: 1, base: 1 },
+    { id: "a", goalId: "g", sourceId: "a", completedAt: 100, points: 1, base: 1 }
+  ] });
+  assert.deepStrictEqual(st.activity.map(function (a) { return a.id; }), ["a", "b"]);
+});
+
 console.log("\n" + pass + " passed, " + fail + " failed\n");
 process.exit(fail ? 1 : 0);

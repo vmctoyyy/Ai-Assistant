@@ -1526,13 +1526,26 @@
     var d = keyToDate(key);
     return d.getDate() + " " + MO3[d.getMonth()];
   }
-  /* The five most recent rows, hoisted above the full record. */
+  /* The five most recent rows, hoisted above the full record. `normGoals`
+     keeps the log sorted oldest-first, so this walks back from the end and
+     stops as soon as it has enough rather than reading the whole history. */
   function recentActivity(activity, goalId, limit) {
-    return (activity || []).filter(function (a) { return a.goalId === goalId; })
-      .slice().sort(function (a, b) {
-        if (a.completedAt !== b.completedAt) return b.completedAt - a.completedAt;
-        return a.id < b.id ? 1 : -1;
-      }).slice(0, limit || 5);
+    var want = limit || 5, out = [], list = activity || [];
+    for (var i = list.length - 1; i >= 0 && out.length < want; i--) {
+      if (list[i].goalId === goalId) out.push(list[i]);
+    }
+    return out;
+  }
+  /* Today's rows only, for the recap. Same trick: walk back and stop the
+     moment the log drops below today rather than filtering everything. */
+  function activityOn(activity, day) {
+    var out = [], list = activity || [];
+    for (var i = list.length - 1; i >= 0; i--) {
+      var k = msToKey(list[i].completedAt);
+      if (k < day) break;
+      if (k === day) out.push(list[i]);
+    }
+    return out.reverse();
   }
 
   /* ---------- what else is already on this goal ----------
@@ -1630,8 +1643,7 @@
   function recapGoalProse(goalsState, today, maxGoals) {
     var st = normGoals(goalsState);
     var byGoal = {};
-    st.activity.forEach(function (a) {
-      if (msToKey(a.completedAt) !== today) return;
+    activityOn(st.activity, today).forEach(function (a) {
       if (!byGoal[a.goalId]) byGoal[a.goalId] = [];
       byGoal[a.goalId].push(a);
     });
@@ -1761,7 +1773,8 @@
     momentumBand: momentumBand, momentumLine: momentumLine,
     goalRecord: goalRecord, goalsByMomentum: goalsByMomentum,
     goalStreak: goalStreak, streakLabel: streakLabel, activeDaysDesc: activeDaysDesc,
-    whenLabel: whenLabel, recentActivity: recentActivity, goalBoosts: goalBoosts,
+    whenLabel: whenLabel, recentActivity: recentActivity, activityOn: activityOn,
+    goalBoosts: goalBoosts,
     recapGoalProse: recapGoalProse, bandRose: bandRose, inSentence: inSentence,
     RECURRENCE: RECURRENCE, blankHabits: blankHabits, normHabits: normHabits,
     normHabit: normHabit, normSlot: normSlot, makeHabit: makeHabit, makeSlot: makeSlot,

@@ -277,6 +277,17 @@ worker not applying itself, which is fixed under Non-negotiables below.)
   the other. Only goals fed *today* appear in the prose; a quiet goal is
   simply absent and the section vanishes entirely when nothing was fed — that
   absence is not a message, so there is no empty state for it.
+- **The activity log is kept oldest-first by `normGoals`, and the readers
+  rely on it.** `recentActivity` walks back from the end and stops once it
+  has its five; `activityOn` walks back and breaks the moment the log drops
+  below the day asked for. Neither reads the whole history. If the sort order
+  ever changes, both quietly return the wrong rows — there is an assertion on
+  the ordering for that reason.
+- **The recap prose is memoised, not persisted.** The spec asked for it to be
+  "cached with the rest of the recap" and, two lines later, for "no new stored
+  fields". It is a pure function of the log and the date, so the memo gives
+  the caching without the stored field, and any past day can still be
+  regenerated exactly.
 - **The prose may name a band and say "four days in a row".** The spec's "no
   counts or band names" reads as "no numeric readouts", since its own worked
   example uses both; the rule is really no data-as-labels.
