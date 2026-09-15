@@ -1465,6 +1465,213 @@
     return { active: live, paused: paused };
   }
 
+  /* ---------- streaks ----------
+     A true streak, asked for by name: it counts consecutive days fed, it
+     warns while the day is running out, and it goes back to nothing when a
+     day is missed. This is deliberate loss-aversion and it is the one place
+     in the app that works that way — the recap prose and the boost block are
+     kept clear of it on purpose. */
+  function activeDaysDesc(activity, goalId) {
+    var seen = {};
+    (activity || []).forEach(function (a) {
+      if (a.goalId === goalId && a.points >= 0) seen[msToKey(a.completedAt)] = true;
+    });
+    return Object.keys(seen).sort().reverse();
+  }
+  /* Alive while today or yesterday has been fed. Two clear days and it is
+     gone: there is no partial credit and nothing is carried over. */
+  function goalStreak(goal, activity, today, nowMin) {
+    var days = activeDaysDesc(activity, goal ? goal.id : null);
+    var yesterday = shiftKey(today, -1);
+    var out = { days: 0, alive: false, fedToday: false, atRisk: false, hoursLeft: 0 };
+    if (!days.length) return out;
+    var head = days[0];
+    if (head !== today && head !== yesterday) return out;   /* broken, back to nothing */
+    var run = 1, cursor = head;
+    for (var i = 1; i < days.length; i++) {
+      if (days[i] !== shiftKey(cursor, -1)) break;
+      cursor = days[i]; run += 1;
+    }
+    out.days = run;
+    out.alive = true;
+    out.fedToday = head === today;
+    out.atRisk = !out.fedToday;
+    if (out.atRisk) {
+      var mins = typeof nowMin === "number" ? nowMin : 0;
+      out.hoursLeft = Math.max(0, Math.ceil((24 * 60 - mins) / 60));
+    }
+    return out;
+  }
+  /* "9 days" / "9 days · 5 hours left". Nothing is said once it has gone. */
+  function streakLabel(st) {
+    if (!st.alive || st.days < 1) return "";
+    var base = st.days + (st.days === 1 ? " day" : " days");
+    if (!st.atRisk) return base;
+    return base + " · " + st.hoursLeft +
+      (st.hoursLeft === 1 ? " hour left" : " hours left");
+  }
+
+  /* ---------- when something happened ---------- */
+  function whenLabel(ms, today) {
+    var key = msToKey(ms);
+    var n = daysBetween(key, today);
+    if (n === 0) {
+      var h24 = new Date(ms).getHours();
+      if (h24 < 12) return "this morning";
+      if (h24 < 17) return "this afternoon";
+      return "this evening";
+    }
+    if (n === 1) return "yesterday";
+    if (n < 7) return WD_FULL[keyToDate(key).getDay()];
+    var d = keyToDate(key);
+    return d.getDate() + " " + MO3[d.getMonth()];
+  }
+  /* The five most recent rows, hoisted above the full record. */
+  function recentActivity(activity, goalId, limit) {
+    return (activity || []).filter(function (a) { return a.goalId === goalId; })
+      .slice().sort(function (a, b) {
+        if (a.completedAt !== b.completedAt) return b.completedAt - a.completedAt;
+        return a.id < b.id ? 1 : -1;
+      }).slice(0, limit || 5);
+  }
+
+  /* ---------- what else is already on this goal ----------
+     Only things already linked and not yet done. Never an invitation to make
+     more work, and it says nothing about what finishing one would do to the
+     momentum — the block is an offer, not a lever. */
+  function goalBoosts(goalId, items, today, limit) {
+    var mine = (items || []).filter(function (t) {
+      return t.goalId === goalId && !t.completedAt;
+    });
+    var todayHabit = mine.filter(function (t) {
+      return isHabitTask(t) && t.genOn === today;
+    }).sort(function (a, b) {
+      var at = validTime(a.dueTime) || "99:99", bt = validTime(b.dueTime) || "99:99";
+      if (at !== bt) return at < bt ? -1 : 1;
+      return a.id < b.id ? -1 : 1;
+    });
+    var rest = mine.filter(function (t) { return !isHabitTask(t); })
+      .sort(function (a, b) {
+        var ad = validDate(a.dueDate) || "9999-99-99", bd = validDate(b.dueDate) || "9999-99-99";
+        if (ad !== bd) return ad < bd ? -1 : 1;
+        var ia = impRank(a), ib = impRank(b);
+        if (ia !== ib) return ia - ib;
+        if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+        return a.id < b.id ? -1 : 1;
+      });
+    return todayHabit.concat(rest).slice(0, limit || 3);
+  }
+
+  /* ---------- the recap paragraph ----------
+     Prose, not a report. Only goals that gained something today appear; a
+     quiet goal is simply absent, and its absence is not a message. Built from
+     templates picked deterministically from the date, so the wording moves
+     day to day but never changes under you on a re-read. */
+  /* Each variant is a whole clause, so nothing has to be glued together at
+     runtime — that is where prose templates usually come apart. */
+  var PROSE = {
+    first: [
+      "{goal} had a good day \u2014 you got {what} done.",
+      "{goal} moved along, with {what} seen to.",
+      "A bit of ground on {goal}: {what} done.",
+      "{goal} came forward \u2014 {what} off the list.",
+      "{goal} got some attention, and {what} with it."
+    ],
+    also: [
+      "{goal} picked up too, with {what}.",
+      "{goal} had a look-in as well \u2014 {what}.",
+      "There was {what} on {goal} besides.",
+      "{goal} got a turn too, with {what}."
+    ],
+    streak: [
+      "That is {n} days in a row now.",
+      "{n} days running.",
+      "That makes {n} days on the trot.",
+      "{n} days without a gap."
+    ],
+    band: [
+      "It is properly {band} now.",
+      "That has it sitting {band}.",
+      "It reads {band} after that.",
+      "Which leaves it {band}."
+    ],
+    rest: [
+      "A couple of the others moved as well.",
+      "The rest had their moments too.",
+      "Other things ticked over besides."
+    ]
+  };
+  function pick(list, seedKey, salt) {
+    var n = daysBetween("2000-01-01", seedKey) + (salt || 0);
+    return list[((n % list.length) + list.length) % list.length];
+  }
+  /* Titles are the user's own words and are left alone, except for a leading
+     article, which reads wrong in the middle of a sentence. Only "The", "A"
+     and "An" are touched — anything else might be a name. */
+  function inSentence(title) {
+    var m = String(title).match(/^(The|A|An)(\s)/);
+    return m ? m[1].toLowerCase() + title.slice(m[1].length) : String(title);
+  }
+  function andList(names) {
+    if (names.length === 1) return names[0];
+    if (names.length === 2) return names[0] + " and " + names[1];
+    return names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+  }
+  /* Whether a goal moved up a band over the course of the day. A drop is
+     never reported — silence is the whole treatment for a quiet goal. */
+  function bandRose(goal, activity, today) {
+    var end = momentumBand(goalMomentum(goal, activity, today));
+    var without = (activity || []).filter(function (a) {
+      return !(a.goalId === goal.id && msToKey(a.completedAt) === today);
+    });
+    var start = momentumBand(goalMomentum(goal, without, today));
+    return end.from > start.from ? end : null;
+  }
+  function recapGoalProse(goalsState, today, maxGoals) {
+    var st = normGoals(goalsState);
+    var byGoal = {};
+    st.activity.forEach(function (a) {
+      if (msToKey(a.completedAt) !== today) return;
+      if (!byGoal[a.goalId]) byGoal[a.goalId] = [];
+      byGoal[a.goalId].push(a);
+    });
+    var fed = st.goals.filter(function (g) { return (byGoal[g.id] || []).length; })
+      .sort(function (a, b) {
+        var na = byGoal[a.id].length, nb = byGoal[b.id].length;
+        if (na !== nb) return nb - na;
+        return a.createdAt - b.createdAt;
+      });
+    if (!fed.length) return "";      /* nothing fed a goal: the section is absent */
+
+    var shown = fed.slice(0, maxGoals || 3);
+    var out = [];
+    shown.forEach(function (g, i) {
+      var names = byGoal[g.id].slice().sort(function (a, b) {
+        return a.completedAt - b.completedAt;
+      }).map(function (a) { return inSentence(a.title); }).filter(function (v, j, arr) {
+        return arr.indexOf(v) === j;
+      });
+      var what = andList(names);
+      out.push(pick(i === 0 ? PROSE.first : PROSE.also, today, i)
+        .replace("{goal}", g.name).replace("{what}", what));
+      /* Only the lead goal earns the extra clauses; past that it gets wordy. */
+      if (i === 0) {
+        var st2 = goalStreak(g, st.activity, today, 0);
+        if (st2.alive && st2.days >= 2) {
+          out.push(pick(PROSE.streak, today, i).replace("{n}", QD_word(st2.days)));
+        }
+        var rose = bandRose(g, st.activity, today);
+        /* Offset so the streak and band clauses do not land on the same
+           index and end up rhyming with each other. */
+        if (rose) out.push(pick(PROSE.band, today, i + 7).replace("{band}", rose.label.toLowerCase()));
+      }
+    });
+    if (fed.length > shown.length) out.push(pick(PROSE.rest, today, 0));
+    return out.join(" ");
+  }
+  /* Small counts read better as words in a sentence. */
+  function QD_word(n) { return n <= 10 ? numberWord(n) : String(n); }
+
   /* ---------- calendar export ----------
      A static site has no push server, so a reminder is a real calendar event
      with a 30-minute alarm. Floating local time: 12:30 means 12:30 wherever
@@ -1553,6 +1760,9 @@
     goalMomentum: goalMomentum, settleGoal: settleGoal, settleGoals: settleGoals,
     momentumBand: momentumBand, momentumLine: momentumLine,
     goalRecord: goalRecord, goalsByMomentum: goalsByMomentum,
+    goalStreak: goalStreak, streakLabel: streakLabel, activeDaysDesc: activeDaysDesc,
+    whenLabel: whenLabel, recentActivity: recentActivity, goalBoosts: goalBoosts,
+    recapGoalProse: recapGoalProse, bandRose: bandRose, inSentence: inSentence,
     RECURRENCE: RECURRENCE, blankHabits: blankHabits, normHabits: normHabits,
     normHabit: normHabit, normSlot: normSlot, makeHabit: makeHabit, makeSlot: makeSlot,
     slotMatches: slotMatches, habitSlotsOn: habitSlotsOn,
