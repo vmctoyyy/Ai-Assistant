@@ -294,7 +294,7 @@
             task.notes ? span({ className: "notes" }, task.notes) : null)),
         button({
           className: "iconbtn", onClick: props.onDelete,
-          "aria-label": "Delete: " + task.title
+          "aria-label": (props.removeLabel || "Delete") + ": " + task.title
         }, icon(I_X, 17))
       )
     );
@@ -326,6 +326,7 @@
       setOnDate(on);
     }
     var s9 = useState(task.dueTime || "09:00"), time = s9[0], setTime = s9[1];
+    var sG = useState(task.goalId || null), goalId = sG[0], setGoalId = sG[1];
     var clean = title.trim();
 
     function save() {
@@ -333,7 +334,8 @@
       props.onSave({
         title: clean, bucket: bucket, importance: imp, notes: notes.trim(),
         dueDate: onDate ? date : null,
-        dueTime: onTime ? time : null
+        dueTime: onTime ? time : null,
+        goalId: goalId
       });
       props.onClose();
     }
@@ -422,6 +424,8 @@
           "aria-label": "Note", enterKeyHint: "done",
           onChange: function (e) { setNotes(e.target.value); }
         })),
+
+      h(GoalPicker, { goals: props.goals || [], value: goalId, onChange: setGoalId }),
 
       isNew ? null : p({ className: "addedline" }, QD.addedLabel(task.createdAt, props.today)));
   }
@@ -1104,15 +1108,17 @@
     }), slots = s3[0], setSlots = s3[1];
     var s4 = useState(""), draftDate = s4[0], setDraftDate = s4[1];
     var s5 = useState(false), armed = s5[0], setArmed = s5[1];
+    var sG = useState(habit ? habit.goalId : null), goalId = sG[0], setGoalId = sG[1];
     var clean = name.trim();
 
     var built = useMemo(function () {
       return QD.makeHabit(clean || "Untitled", {
         id: habit ? habit.id : undefined,
         importance: imp, active: habit ? habit.active : true,
-        schedule: slots, now: habit ? habit.createdAt : Date.now()
+        schedule: slots, goalId: goalId,
+        now: habit ? habit.createdAt : Date.now()
       });
-    }, [clean, imp, slots, habit]);
+    }, [clean, imp, slots, goalId, habit]);
     var usable = slots.filter(function (s) { return !!QD.normSlot(s); }).length;
     var canSave = !!clean && usable === slots.length && usable > 0;
 
@@ -1166,6 +1172,9 @@
           onClick: function () { setSlots(slots.concat([blankSlot()])); }
         }, "+ Add another time")),
 
+      h(GoalPicker, { goals: props.goals || [], value: goalId, onChange: setGoalId,
+        note: "Set once here. Every task this habit puts up will carry it." }),
+
       built ? p({ className: "habit-preview" },
         "Saves as: " + QD.habitSummary(built)) : null);
   }
@@ -1214,96 +1223,48 @@
         : null);
   }
 
-  /* ---------- goals ---------- */
-  var TF_OPTS = [{ value: "short", label: "Short" }, { value: "long", label: "Long" }];
+  /* ---------- goals: momentum ---------- */
 
-  function Meter(props) {
-    var pct = Math.max(0, Math.min(100, props.pct));
-    return div({ className: "meter", role: "img",
-      "aria-label": pct + " per cent of the way" },
-      div({ className: "meter-fill", style: { width: pct + "%" } }));
+  /* The bubble's own warmth carries the state — no separate widget, no score.
+     Only "alight" gets real fire, and it stays amber and gold rather than
+     anything saturated. */
+  function Flame() {
+    return h("svg", { className: "flame", viewBox: "0 0 24 24", "aria-hidden": "true" },
+      h("path", { className: "flame-outer",
+        d: "M12 3c.6 3.2-1.6 4.4-2.8 6.1C8 10.9 7.5 12.4 7.5 14a4.5 4.5 0 0 0 9 0c0-2.4-1.3-4-2.4-5.4C13 7.2 12.4 5.4 12 3z" }),
+      h("path", { className: "flame-inner",
+        d: "M12 12c.4 1.5-.9 2-1.3 2.9-.2.5-.2 1 0 1.5a2.1 2.1 0 0 0 4-.9c0-1-.7-1.7-1.3-2.3-.5-.5-1.2-.9-1.4-1.2z" }));
   }
 
-  /* Choosing what a goal watches. Nothing is created here — only existing
-     tasks and habits are named, which is what keeps a goal a container. */
-  function LinkPicker(props) {
-    var s1 = useState(props.tasks), pickT = s1[0], setPickT = s1[1];
-    var s2 = useState(props.habits), pickH = s2[0], setPickH = s2[1];
-
-    function toggleTask(t) {
-      var on = pickT.some(function (x) { return x.id === t.id; });
-      setPickT(on ? pickT.filter(function (x) { return x.id !== t.id; })
-                  : pickT.concat([{ id: t.id, title: t.title }]));
-    }
-    function toggleHabit(hb) {
-      var on = pickH.some(function (x) { return x.habitId === hb.id; });
-      setPickH(on ? pickH.filter(function (x) { return x.habitId !== hb.id; })
-                  : pickH.concat([{ habitId: hb.id, targetCount: 10 }]));
-    }
-    function setCount(id, v) {
-      setPickH(pickH.map(function (x) {
-        return x.habitId === id ? { habitId: id, targetCount: v } : x;
-      }));
-    }
-    return h(Sheet, {
-      title: "What is this goal watching?", onClose: props.onClose, footerSpread: true,
-      footer: [
-        button({ key: "c", className: "btn", onClick: props.onClose }, "Cancel"),
-        button({ key: "s", className: "btn primary",
-          onClick: function () { props.onSave(pickT, pickH); props.onClose(); } }, "Link them")
-      ]
-    },
-      div({ className: "sheetfield" },
-        span({ className: "fieldlabel" }, "Tasks"),
-        props.allTasks.length === 0
-          ? p({ className: "fieldnote" }, "No open tasks to link just yet.")
-          : div({ className: "picklist" }, props.allTasks.map(function (t) {
-              var on = pickT.some(function (x) { return x.id === t.id; });
-              return button({
-                key: t.id, type: "button", className: "pickrow" + (on ? " on" : ""),
-                "aria-pressed": on ? "true" : "false",
-                onMouseDown: function (e) { e.preventDefault(); },
-                onClick: function () { toggleTask(t); }
-              }, h(Check, { on: on }), span({ className: "pk-title" }, t.title));
-            }))),
-
-      div({ className: "sheetfield" },
-        span({ className: "fieldlabel" }, "Habits"),
-        props.allHabits.length === 0
-          ? p({ className: "fieldnote" }, "No habits to link just yet.")
-          : div({ className: "picklist" }, props.allHabits.map(function (hb) {
-              var link = pickH.filter(function (x) { return x.habitId === hb.id; })[0];
-              return div({ className: "pickwrap", key: hb.id },
-                button({
-                  type: "button", className: "pickrow" + (link ? " on" : ""),
-                  "aria-pressed": link ? "true" : "false",
-                  onMouseDown: function (e) { e.preventDefault(); },
-                  onClick: function () { toggleHabit(hb); }
-                }, h(Check, { on: !!link }), span({ className: "pk-title" }, hb.name)),
-                link ? div({ className: "pk-count" },
-                  h("label", { className: "slot-lab", htmlFor: "cnt-" + hb.id }, "How many?"),
-                  input({
-                    id: "cnt-" + hb.id, className: "field num", type: "number", min: 1,
-                    value: link.targetCount, "aria-label": "Times for " + hb.name,
-                    onChange: function (e) { setCount(hb.id, e.target.value); }
-                  })) : null);
-            }))));
+  /* One picker, used by both the task sheet and the habit sheet. Most things
+     have no goal, so "None" leads and nothing is preselected. */
+  function GoalPicker(props) {
+    if (!props.goals.length) return null;
+    return div({ className: "sheetfield" },
+      span({ className: "fieldlabel" }, "Goal"),
+      div({ className: "chips", role: "group", "aria-label": "Goal" },
+        [{ id: null, name: "None" }].concat(props.goals).map(function (g) {
+          var on = (props.value || null) === g.id;
+          return button({
+            key: g.id || "none", type: "button",
+            className: "chip" + (on ? " on" : ""),
+            "aria-pressed": on ? "true" : "false",
+            onMouseDown: function (e) { e.preventDefault(); },
+            onClick: function () { props.onChange(g.id); }
+          }, g.name);
+        })),
+      span({ className: "fieldnote" }, props.note ||
+        "Completing this adds to that goal's momentum. Most things need no goal."));
   }
 
-  /* Add or edit a goal. Linking is its own step, so this stays a short form. */
   function GoalSheet(props) {
     var goal = props.goal;
-    var s1 = useState(goal ? goal.title : ""), title = s1[0], setTitle = s1[1];
-    var s2 = useState(goal ? goal.timeframe : "short"), tf = s2[0], setTf = s2[1];
-    var s3 = useState(!!(goal && goal.targetDate)), onDate = s3[0], setOnDate = s3[1];
-    var s4 = useState((goal && goal.targetDate) || props.today), date = s4[0], setDate = s4[1];
-    var clean = title.trim();
-
+    var s1 = useState(goal ? goal.name : ""), name = s1[0], setName = s1[1];
+    var s2 = useState(goal ? goal.description : ""), desc = s2[0], setDesc = s2[1];
+    var clean = name.trim();
     function save() {
       if (!clean) return;
-      props.onSave({
-        title: clean, timeframe: tf, targetDate: onDate ? date : null
-      });
+      props.onSave({ name: clean, description: desc.trim() });
       props.onClose();
     }
     return h(Sheet, {
@@ -1319,116 +1280,157 @@
       div({ className: "sheetfield" },
         span({ className: "fieldlabel" }, "Goal"),
         input({
-          className: "field", value: title, placeholder: "Read 12 books",
-          "aria-label": "Goal title", enterKeyHint: "done",
-          onChange: function (e) { setTitle(e.target.value); },
+          className: "field", value: name, placeholder: "Get properly fit",
+          "aria-label": "Goal name", enterKeyHint: "done",
+          onChange: function (e) { setName(e.target.value); },
           onKeyDown: function (e) { if (e.key === "Enter") { e.preventDefault(); save(); } }
         }),
         clean ? null : span({ className: "fieldnote" }, "A goal needs a name.")),
-
       div({ className: "sheetfield" },
-        span({ className: "fieldlabel" }, "Timeframe"),
-        h(Chips, { label: "Timeframe", options: TF_OPTS, value: tf, onChange: setTf }),
+        span({ className: "fieldlabel" }, "Description"),
+        input({
+          className: "field", value: desc, placeholder: "Optional",
+          "aria-label": "Goal description", enterKeyHint: "done",
+          onChange: function (e) { setDesc(e.target.value); }
+        }),
         span({ className: "fieldnote" },
-          "A label for you. It changes nothing about how progress is counted.")),
+          "No target and no deadline. A goal here is a direction, not a contract.")));
+  }
 
+  /* Linking from the goal's side: whatever is not already spoken for. */
+  function LinkExisting(props) {
+    return h(Sheet, {
+      title: "Link to this goal", onClose: props.onClose,
+      footer: [button({ key: "c", className: "btn", onClick: props.onClose }, "Done")]
+    },
       div({ className: "sheetfield" },
-        span({ className: "fieldlabel" }, "Target date"),
-        div({ className: "togglerow" },
-          h(Toggle, { on: onDate, label: "Set a date", onChange: setOnDate }),
-          onDate ? input({
-            className: "field stamp", type: "date", value: date, "aria-label": "Target date",
-            onChange: function (e) { setDate(e.target.value); }
-          }) : null),
-        onDate ? span({ className: "fieldnote" },
-          "Shown on the goal. Nothing changes colour or starts nagging as it approaches.") : null));
+        span({ className: "fieldlabel" }, "Tasks"),
+        props.tasks.length === 0
+          ? p({ className: "fieldnote" }, "Nothing unlinked to add just now.")
+          : div({ className: "picklist" }, props.tasks.map(function (t) {
+              return button({
+                key: t.id, type: "button", className: "pickrow",
+                onMouseDown: function (e) { e.preventDefault(); },
+                onClick: function () { props.onLinkTask(t.id); }
+              }, icon(I_PLUS, 16), span({ className: "pk-title" }, t.title));
+            }))),
+      div({ className: "sheetfield" },
+        span({ className: "fieldlabel" }, "Habits"),
+        props.habits.length === 0
+          ? p({ className: "fieldnote" }, "Nothing unlinked to add just now.")
+          : div({ className: "picklist" }, props.habits.map(function (hb) {
+              return button({
+                key: hb.id, type: "button", className: "pickrow",
+                onMouseDown: function (e) { e.preventDefault(); },
+                onClick: function () { props.onLinkHabit(hb.id); }
+              }, icon(I_PLUS, 16), span({ className: "pk-title" }, hb.name));
+            }))));
   }
 
   function GoalsApp(props) {
-    var split = props.split;
+    var s1 = useState(false), showPaused = s1[0], setShowPaused = s1[1];
     function bubble(g) {
-      var pct = QD.goalPercent(g, props.items, props.done, props.habits);
-      var target = QD.targetDateLabel(g, props.today);
-      return div({ className: "goal-bubble", key: g.id },
+      var band = QD.momentumBand(QD.goalMomentum(g, props.activity, props.today));
+      return div({ className: "goal-bubble band-" + (g.active ? band.id : "paused"), key: g.id },
         button({ className: "goal-body", onClick: function () { props.onOpen(g.id); },
-          "aria-label": "Open goal: " + g.title },
+          "aria-label": "Open goal: " + g.name },
           div({ className: "goal-top" },
-            span({ className: "goal-name" }, g.title),
-            span({ className: "goal-pct" }, pct + "%")),
-          h(Meter, { pct: pct }),
-          div({ className: "goal-meta" },
-            span({ className: "goal-tf" }, g.timeframe === "long" ? "Long term" : "Short term"),
-            target ? span(null, target) : null)));
+            span({ className: "goal-name" }, g.name),
+            g.active && band.id === "alight" ? h(Flame) : null),
+          div({ className: "goal-state" }, QD.momentumLine(g, props.activity, props.today))));
     }
+    var list = props.list;
     return h(Screen, { title: "Goals", onBack: props.onBack, anim: props.anim },
       div({ className: "habit-lead" },
         button({ className: "btn", onClick: props.onNew },
           icon(I_PLUS, 16), span(null, "Add goal"))),
 
-      split.active.length === 0 && split.done.length === 0
+      list.active.length === 0 && list.paused.length === 0
         ? div({ className: "habit-empty" },
             p(null, "Nothing here yet."),
             p({ className: "muted" },
-              "A goal watches tasks and habits you already have and shows how far along they are. It does not add work of its own."),
+              "A goal is a thread running through the rest of the app. It stays alight while you keep showing up, and cools quietly when you do not."),
             p({ className: "muted" },
-              "One is plenty to begin with. Pick something you are already doing and let it keep count."))
+              "One is a fine place to start. Link a task or a habit to it and it will keep itself."))
         : null,
 
-      split.active.length
-        ? div({ className: "goal-list" }, split.active.map(bubble)) : null,
+      list.active.length ? div({ className: "goal-list" }, list.active.map(bubble)) : null,
 
-      split.done.length
-        ? section({ className: "sec goal-done" },
-            h(Eyebrow, { title: "Done" }),
-            div({ className: "goal-list" }, split.done.map(bubble))) : null);
+      list.paused.length ? section({ className: "sec" },
+        button({ className: "disc", "aria-expanded": showPaused ? "true" : "false",
+          onClick: function () { setShowPaused(!showPaused); } },
+          span({ className: "lbl" }, "Paused"),
+          span({ className: "meta" }, String(list.paused.length)),
+          span({ className: "chev" + (showPaused ? " open" : "") }, icon(I_CHEV, 18))),
+        showPaused ? div({ className: "goal-list" }, list.paused.map(bubble)) : null) : null);
   }
+
+  var RECORD_PAGE = 30;
 
   function GoalScreen(props) {
     var goal = props.goal;
-    var s1 = useState(false), armed = s1[0], setArmed = s1[1];
-    var list = QD.goalItems(goal, props.items, props.done, props.habits);
-    var pct = QD.goalPercent(goal, props.items, props.done, props.habits);
-    var target = QD.targetDateLabel(goal, props.today);
-    var finished = QD.goalIsDone(goal, props.items, props.done, props.habits);
+    var s1 = useState(RECORD_PAGE), shown = s1[0], setShown = s1[1];
+    var band = QD.momentumBand(QD.goalMomentum(goal, props.activity, props.today));
+    var record = QD.goalRecord(props.activity, goal.id, 0, shown);
 
     return h(Screen, { title: "Goal", onBack: props.onBack, anim: props.anim },
-      div({ className: "goal-head" },
-        h2({ className: "goal-h" }, goal.title),
+      div({ className: "goal-head band-" + (goal.active ? band.id : "paused") },
         div({ className: "goal-top" },
-          span({ className: "goal-tf" }, goal.timeframe === "long" ? "Long term" : "Short term"),
-          span({ className: "goal-pct big" }, pct + "%")),
-        h(Meter, { pct: pct }),
-        target ? p({ className: "goal-target" }, target) : null),
+          h2({ className: "goal-h" }, goal.name),
+          goal.active && band.id === "alight" ? h(Flame) : null),
+        goal.description ? p({ className: "goal-desc" }, goal.description) : null,
+        p({ className: "goal-state big" }, QD.momentumLine(goal, props.activity, props.today))),
 
       section({ className: "sec" },
-        h(Eyebrow, { title: "Watching", hint: list.length ? String(list.length) : null }),
-        list.length === 0
+        h(Eyebrow, { title: "Feeding this",
+          hint: props.linked.length ? String(props.linked.length) : null }),
+        props.linked.length === 0
           ? p({ className: "empty-note" }, "Nothing linked yet.")
-          : div({ className: "link-list" }, list.map(function (i) {
-              return div({ className: "link-row" + (i.gone ? " gone" : ""), key: i.kind + i.id },
-                div({ className: "lk-body" },
-                  div({ className: "lk-title" },
-                    i.kind === "habit" ? span({ className: "habitmark" }, icon(I_REPEAT, 13)) : null,
-                    i.title),
-                  div({ className: "lk-state" }, QD.goalItemLabel(i))),
-                button({
-                  className: "iconbtn", "aria-label": "Unlink " + i.title,
-                  onClick: function () { props.onUnlink(i.kind, i.id); }
-                }, icon(I_X, 17)));
+          : div({ className: "tasks" }, props.linked.map(function (row) {
+              if (row.kind === "habit") {
+                return div({ className: "link-row", key: "h" + row.habit.id },
+                  div({ className: "lk-body" },
+                    div({ className: "lk-title" },
+                      span({ className: "habitmark" }, icon(I_REPEAT, 13)), row.habit.name),
+                    div({ className: "lk-state" }, QD.habitSummary(row.habit))),
+                  button({ className: "iconbtn", "aria-label": "Unlink " + row.habit.name,
+                    onClick: function () { props.onUnlinkHabit(row.habit.id); } }, icon(I_X, 17)));
+              }
+              return h(TaskRow, {
+                key: row.task.id, task: row.task, today: props.today, now: props.now,
+                removeLabel: "Unlink",
+                onToggle: function () { props.onToggle(row.task.id); },
+                onDelete: function () { props.onUnlinkTask(row.task.id); },
+                onOptions: function () { props.onOptions(row.task.id); }
+              });
             })),
         button({ className: "btn wide", onClick: props.onLink },
-          icon(I_PLUS, 16), span(null, "Link something else"))),
+          icon(I_PLUS, 16), span(null, "Link existing"))),
 
       section({ className: "sec" },
-        button({ className: "btn wide" + (finished ? " on" : ""), onClick: props.onToggleDone },
-          finished ? "Mark as not done" : "Mark as done"),
-        p({ className: "fieldnote" }, finished
-          ? "This goal is sitting in Done."
-          : "For a goal that will not tick to a hundred on its own."),
+        h(Eyebrow, { title: "The record",
+          hint: record.total ? String(record.total) : null }),
+        record.total === 0
+          ? p({ className: "empty-note" }, "Nothing done toward this yet.")
+          : div({ className: "record" }, record.days.map(function (d) {
+              return div({ className: "rec-day", key: d.day },
+                div({ className: "rec-date" }, QD.dueLabelLong(d.day, null, props.today)),
+                div({ className: "rec-items" }, d.items.map(function (a) {
+                  return div({ className: "rec-item", key: a.id },
+                    a.sourceType === "habit"
+                      ? span({ className: "habitmark" }, icon(I_REPEAT, 12)) : null,
+                    span({ className: "rec-title" }, a.title));
+                })));
+            })),
+        record.more ? button({ className: "btn wide",
+          onClick: function () { setShown(shown + RECORD_PAGE); } }, "Show more") : null),
+
+      section({ className: "sec" },
         div({ className: "goal-acts" },
-          button({ className: "linkbtn", onClick: props.onEdit }, "Edit goal"),
-          button({ className: "linkbtn danger" + (armed ? " armed" : ""),
-            onClick: props.onDelete }, "Delete goal"))));
+          button({ className: "linkbtn", onClick: props.onEdit }, "Edit"),
+          button({ className: "linkbtn", onClick: props.onTogglePause },
+            goal.active ? "Pause" : "Resume"),
+          button({ className: "linkbtn danger", onClick: props.onDelete }, "Delete"))));
   }
 
   /* ---------- app ---------- */
@@ -1443,7 +1445,6 @@
     var s6 = useState(QD.blankCarts), carts = s6[0], setCartsRaw = s6[1];
     var sH = useState(QD.blankHabits), habits = sH[0], setHabitsRaw = sH[1];
     var sG = useState(QD.blankGoals), goals = sG[0], setGoalsRaw = sG[1];
-    var sDN = useState(QD.blankDone), done = sDN[0], setDoneRaw = sDN[1];
     var sOG = useState(null), openGoalId = sOG[0], setOpenGoalId = sOG[1];
     var sGE = useState(null), editingGoal = sGE[0], setEditingGoal = sGE[1];
     var sGL = useState(null), linkingGoal = sGL[0], setLinkingGoal = sGL[1];
@@ -1493,7 +1494,6 @@
        `habits` and is carried untouched. */
     var setHabits   = useCallback(function (v) { setHabitsRaw(v);   save("habitsv2", v); }, []);
     var setGoals    = useCallback(function (v) { setGoalsRaw(v);    save("goals", v); }, []);
-    var setDone     = useCallback(function (v) { setDoneRaw(v);     save("done", v); }, []);
     var setPrefs    = useCallback(function (v) { setPrefsRaw(v);    save("prefs", v); }, []);
 
     /* boot */
@@ -1520,7 +1520,7 @@
             readKey("recap", null), readKey("quotes", null), readKey("shopping", null),
             readKey("carts", null),
             readKey("habits", null), readKey("markets", null), readKey("schedule", null),
-            readKey("habitsv2", null), readKey("goals", null), readKey("done", null)
+            readKey("habitsv2", null), readKey("goals", null)
           ]).then(function (res) {
             if (cancelled) return;
             var t = QD.migrate(res[0], day);
@@ -1538,17 +1538,15 @@
             t = { version: 2, items: hb.items, doneYesterday: t.doneYesterday,
                   lastRollOn: t.lastRollOn };
             var pf = normPrefs(res[1]);
-            /* The ledger is what lets a goal still see a task the midnight
-               clear has taken away, so it is pruned against the goals that
-               still point at things rather than against the task list. */
-            var gl = QD.normGoals(res[10]);
-            var dn = QD.pruneDone(QD.normDone(res[11]), t.items, gl);
+            /* Settle each goal's momentum to the end of yesterday, so the
+               work is proportional to days elapsed rather than to the whole
+               history. Today is left unsettled: it is still earning. */
+            var gl = QD.settleGoals(QD.normGoals(res[10]), day);
 
             setToday(day);
             setTasksRaw(t);
             setHabitsRaw(hb.habits);
             setGoalsRaw(gl);
-            setDoneRaw(dn);
             setRecapRaw(rc);
             setQuotesRaw(QD.normQuotes(res[3]));
             /* Carts absorb the old flat shopping list on first run. */
@@ -1564,7 +1562,6 @@
             save("carts", ct);
             save("habitsv2", hb.habits);
             save("goals", gl);
-            save("done", dn);
           });
         })
         .catch(function () {
@@ -1619,10 +1616,11 @@
                  lastRollOn: rolled.lastRollOn });
       setHabits(minted.habits);
       setCarts(QD.sweepCarts(carts, now));
+      setGoals(QD.settleGoals(goals, now));
       /* lastBriefShownOn is deliberately left on yesterday, so the first
          visit to Tasks after midnight still opens the brief. */
-    }, [clock, today, loading, tasks, recap, carts, habits,
-        setTasks, setRecap, setCarts, setHabits]);
+    }, [clock, today, loading, tasks, recap, carts, habits, goals,
+        setTasks, setRecap, setCarts, setHabits, setGoals]);
 
     /* ---- task actions ---- */
     function commit(items) {
@@ -1665,8 +1663,14 @@
         return flipped;
       }));
       /* Written by the same tick that completes the task and unwritten by the
-         one that undoes it, so the two can never disagree. */
-      if (flipped) setDone(QD.recordCompletion(done, flipped));
+         one that undoes it, so the record can never disagree with the tick.
+         Nothing without a goal is recorded at all. */
+      if (flipped && flipped.goalId) {
+        var g = goals.goals.filter(function (x) { return x.id === flipped.goalId; })[0];
+        setGoals(flipped.completedAt
+          ? QD.addActivity(goals, g, flipped, flipped.completedAt)
+          : QD.removeActivity(goals, flipped));
+      }
     }
     function deleteTask(id) {
       commit(tasks.items.filter(function (t) { return t.id !== id; }));
@@ -1834,9 +1838,11 @@
     }
 
     /* ---- goal actions ----
-       A goal only ever names things. Nothing here writes to a task or a
-       habit, and deleting one takes the container alone. */
-    function commitGoals(list) { setGoals({ goals: list }); }
+       A goal names things; it never owns them. Deleting one unlinks its tasks
+       and habits rather than deleting them, and takes only its own record. */
+    function commitGoals(list, activity) {
+      setGoals({ goals: list, activity: activity || goals.activity });
+    }
     function saveGoal(id, changes) {
       if (id) {
         commitGoals(goals.goals.map(function (g) {
@@ -1844,38 +1850,42 @@
         }));
         return;
       }
-      var made = QD.makeGoal(changes.title, {
-        timeframe: changes.timeframe, targetDate: changes.targetDate
-      });
+      var made = QD.makeGoal(changes.name, { description: changes.description });
       commitGoals(goals.goals.concat([made]));
-      /* Straight into linking: a goal watching nothing cannot show anything. */
-      setOpenGoalId(made.id);
-      setLinkingGoal(made.id);
+      /* Straight into it: a goal with nothing linked shows nothing, and
+         "Link existing" is on the detail screen. */
+      go("a-push", function () { setOpenGoalId(made.id); });
     }
-    function linkToGoal(id, tasks, habitLinks) {
-      commitGoals(goals.goals.map(function (g) {
-        return g.id === id
-          ? QD.normGoal(Object.assign({}, g, { linkedTasks: tasks, linkedHabits: habitLinks }))
-          : g;
-      }));
-    }
-    function unlinkFromGoal(id, kind, linkId) {
+    function setGoalActive(id, active) {
       commitGoals(goals.goals.map(function (g) {
         if (g.id !== id) return g;
-        return QD.normGoal(Object.assign({}, g, kind === "habit"
-          ? { linkedHabits: g.linkedHabits.filter(function (l) { return l.habitId !== linkId; }) }
-          : { linkedTasks: g.linkedTasks.filter(function (l) { return l.id !== linkId; }) }));
-      }));
-    }
-    function toggleGoalDone(id) {
-      commitGoals(goals.goals.map(function (g) {
-        if (g.id !== id) return g;
-        var finished = QD.goalIsDone(g, tasks.items, done, habits);
-        return QD.normGoal(Object.assign({}, g, { status: finished ? "active" : "done" }));
+        /* Settle first, so a goal pauses holding the value it actually had
+           rather than a stale checkpoint. */
+        var settled = QD.settleGoal(g, goals.activity, today);
+        return QD.normGoal(Object.assign({}, settled, {
+          active: active,
+          momentum: QD.goalMomentum(settled, goals.activity, today),
+          momentumAsOf: today
+        }));
       }));
     }
     function deleteGoal(id) {
-      commitGoals(goals.goals.filter(function (g) { return g.id !== id; }));
+      commitGoals(
+        goals.goals.filter(function (g) { return g.id !== id; }),
+        goals.activity.filter(function (a) { return a.goalId !== id; }));
+      /* Unlink rather than delete: the tasks and habits are the user's. */
+      commit(tasks.items.map(function (t) {
+        return t.goalId === id ? Object.assign({}, t, { goalId: null }) : t;
+      }));
+      setHabits({ habits: habits.habits.map(function (hb) {
+        return hb.goalId === id ? Object.assign({}, hb, { goalId: null }) : hb;
+      }), gen: habits.gen, lastGenOn: habits.lastGenOn });
+    }
+    function linkTaskToGoal(taskId, goalId) { patch(taskId, { goalId: goalId }); }
+    function linkHabitToGoal(habitId, goalId) {
+      setHabits({ habits: habits.habits.map(function (hb) {
+        return hb.id === habitId ? QD.normHabit(Object.assign({}, hb, { goalId: goalId })) : hb;
+      }), gen: habits.gen, lastGenOn: habits.lastGenOn });
     }
 
     /* Clears the apps that are live. Retired keys are deliberately left
@@ -1888,7 +1898,6 @@
       setQuotes({ list: [] });
       setHabits(QD.blankHabits());
       setGoals(QD.blankGoals());
-      setDone(QD.blankDone());
       setArmed(false); setWarn(null);
     }
     function restore(data) {
@@ -1899,7 +1908,6 @@
       setCarts(QD.sweepCarts(QD.normCarts(data.carts, QD.normShopping(data.shopping)), day));
       setHabits(QD.normHabits(data.habitsv2));
       setGoals(QD.normGoals(data.goals));
-      setDone(QD.normDone(data.done));
       if (data.habits || data.markets || data.schedule) {
         setRetired({ habits: data.habits, markets: data.markets, schedule: data.schedule });
       }
@@ -1908,10 +1916,10 @@
     var snapshot = useMemo(function () {
       return { app: "quiet-desk", version: 3, exportedAt: new Date().toISOString(),
         tasks: tasks, recap: recap, quotes: quotes, carts: carts, habitsv2: habits,
-        goals: goals, done: done,
+        goals: goals,
         habits: retired.habits, markets: retired.markets, schedule: retired.schedule,
         shopping: retired.shopping };
-    }, [tasks, recap, quotes, carts, habits, goals, done, retired]);
+    }, [tasks, recap, quotes, carts, habits, goals, retired]);
 
     /* ---- derived ---- */
     var rankedToday = useMemo(function () {
@@ -1925,14 +1933,16 @@
       return QD.quoteForDay(quoteList, today);
     }, [quoteList, today]);
     var cartList = useMemo(function () { return QD.cartsNewestFirst(carts); }, [carts]);
-    /* Recomputed when a tick changes what the ledger or the task list says —
-       not on unrelated renders, and not duplicated into the goals themselves. */
-    var goalSplit = useMemo(function () {
-      return QD.splitGoals(goals, tasks.items, done, habits);
-    }, [goals, tasks.items, done, habits]);
+    /* Recomputed when the goals or their activity change, not per render. */
+    var goalList = useMemo(function () {
+      return QD.goalsByMomentum(goals, today);
+    }, [goals, today]);
+    var activeGoals = useMemo(function () {
+      return goals.goals.filter(function (g) { return g.active; });
+    }, [goals]);
     /* One-off tasks only. A habit's instance is minted fresh each morning and
-       cleared at the rollover, so linking one as a task would hand the goal a
-       checklist item that disappears overnight — link the habit itself. */
+       cleared at the rollover, so linking one as a task would hand the goal
+       something that disappears overnight — link the habit itself. */
     var openTasks = useMemo(function () {
       return tasks.items.filter(function (t) {
         return !t.completedAt && !QD.isHabitTask(t);
@@ -1993,7 +2003,7 @@
       commit(tasks.items.concat([QD.makeTask(changes.title, {
         id: draft.id, bucket: changes.bucket, importance: changes.importance,
         notes: changes.notes, dueDate: changes.dueDate, dueTime: changes.dueTime,
-        today: today, now: Date.now()
+        goalId: changes.goalId, today: today, now: Date.now()
       })]));
       closeAdd();
     }
@@ -2065,7 +2075,7 @@
     var editingTask = editingId
       ? tasks.items.filter(function (t) { return t.id === editingId; })[0] : null;
     var taskSheet = editingTask ? h(TaskSheet, {
-      key: editingTask.id, task: editingTask, today: today,
+      key: editingTask.id, task: editingTask, today: today, goals: activeGoals,
       onClose: function () { setEditingId(null); },
       onSave: function (changes) { patch(editingTask.id, changes); },
       onDelete: function () { deleteTask(editingTask.id); },
@@ -2073,7 +2083,7 @@
     }) : null;
 
     var draftSheet = draft ? h(TaskSheet, {
-      key: "draft", task: draft, today: today, isNew: true,
+      key: "draft", task: draft, today: today, isNew: true, goals: activeGoals,
       onClose: function () { setDraft(null); },
       onSave: saveDraft,
       onDelete: function () {}, onRemind: function () {}
@@ -2207,40 +2217,45 @@
         key: editingGoal,
         goal: editingGoal === "new" ? null
           : goals.goals.filter(function (g) { return g.id === editingGoal; })[0],
-        today: today,
         onClose: function () { setEditingGoal(null); },
         onSave: function (changes) {
           saveGoal(editingGoal === "new" ? null : editingGoal, changes);
         }
       }) : null;
-      var linked = linkingGoal
-        ? goals.goals.filter(function (g) { return g.id === linkingGoal; })[0] : null;
-      var linkSheet = linked ? h(LinkPicker, {
-        key: linked.id,
-        tasks: linked.linkedTasks, habits: linked.linkedHabits,
-        allTasks: openTasks, allHabits: habitList,
-        onClose: function () { setLinkingGoal(null); },
-        onSave: function (tks, hbs) { linkToGoal(linked.id, tks, hbs); }
-      }) : null;
-      var sheets = h(React.Fragment, null, goalSheet, linkSheet,
-        confirming ? h(Confirm, confirming) : null);
-
       var openGoal = openGoalId
         ? goals.goals.filter(function (g) { return g.id === openGoalId; })[0] : null;
+      var linkSheet = (linkingGoal && openGoal) ? h(LinkExisting, {
+        key: "link",
+        tasks: openTasks.filter(function (t) { return !t.goalId; }),
+        habits: habitList.filter(function (hb) { return !hb.goalId; }),
+        onClose: function () { setLinkingGoal(null); },
+        onLinkTask: function (id) { linkTaskToGoal(id, openGoal.id); },
+        onLinkHabit: function (id) { linkHabitToGoal(id, openGoal.id); }
+      }) : null;
+      var gSheets = h(React.Fragment, null, goalSheet, linkSheet,
+        confirming ? h(Confirm, confirming) : null);
+
       if (openGoal) {
+        var mine = tasks.items.filter(function (t) { return t.goalId === openGoal.id; });
+        var linkedRows = habitList.filter(function (hb) { return hb.goalId === openGoal.id; })
+          .map(function (hb) { return { kind: "habit", habit: hb }; })
+          .concat(mine.filter(function (t) { return !QD.isHabitTask(t); })
+            .map(function (t) { return { kind: "task", task: t }; }));
         return h(React.Fragment, null,
-          h(GoalScreen, { key: nav.n, anim: nav.anim, goal: openGoal, today: today,
-            items: tasks.items, done: done, habits: habits,
+          h(GoalScreen, { key: nav.n, anim: nav.anim, goal: openGoal, today: today, now: clock,
+            activity: goals.activity, linked: linkedRows,
             onBack: function () { go("a-pop", function () { setOpenGoalId(null); }); },
+            onToggle: toggleTask, onOptions: setEditingId,
             onLink: function () { setLinkingGoal(openGoal.id); },
-            onUnlink: function (kind, lid) { unlinkFromGoal(openGoal.id, kind, lid); },
-            onToggleDone: function () { toggleGoalDone(openGoal.id); },
+            onUnlinkTask: function (id) { linkTaskToGoal(id, null); },
+            onUnlinkHabit: function (id) { linkHabitToGoal(id, null); },
             onEdit: function () { setEditingGoal(openGoal.id); },
+            onTogglePause: function () { setGoalActive(openGoal.id, !openGoal.active); },
             onDelete: function () {
               setConfirming({
                 title: "Delete this goal?",
-                lead: "\u201c" + openGoal.title + "\u201d goes.",
-                detail: "Everything it was watching stays exactly as it is — no task or habit is touched. There is no undo for the goal itself.",
+                lead: "\u201c" + openGoal.name + "\u201d goes, and its record with it.",
+                detail: "The tasks and habits feeding it are only unlinked \u2014 none of them is deleted. There is no undo for the record.",
                 confirmLabel: "Delete it",
                 onConfirm: function () {
                   deleteGoal(openGoal.id);
@@ -2249,22 +2264,22 @@
                 onClose: function () { setConfirming(null); }
               });
             } }),
-          sheets, overlays);
+          gSheets, overlays);
       }
       return h(React.Fragment, null,
         h(GoalsApp, { key: nav.n, anim: nav.anim, today: today,
-          split: goalSplit, items: tasks.items, done: done, habits: habits,
+          list: goalList, activity: goals.activity,
           onBack: home,
           onNew: function () { setEditingGoal("new"); },
           onOpen: function (id) { go("a-push", function () { setOpenGoalId(id); }); } }),
-        sheets, overlays);
+        gSheets, overlays);
     }
     if (route === "habits") {
       var habitSheet = editingHabit ? h(HabitSheet, {
         key: editingHabit,
         habit: editingHabit === "new" ? null
           : habits.habits.filter(function (hb) { return hb.id === editingHabit; })[0],
-        today: today,
+        today: today, goals: activeGoals,
         onClose: function () { setEditingHabit(null); },
         onSave: saveHabit, onDelete: deleteHabit
       }) : null;

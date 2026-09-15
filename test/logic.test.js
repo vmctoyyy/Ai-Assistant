@@ -1301,212 +1301,374 @@ t("the brief still lists the whole day's fixed points in clock order", function 
 });
 
 
-console.log("\nthe completions ledger");
-function hTask(id, habitId, slotId, on, at) {
-  var t = QD.normTask({ id: id, title: id, bucket: "today", dueDate: on,
-    createdAt: ms(on, 8) }, on);
+console.log("\nmomentum: points and the daily ladder");
+var GDAY = "2026-09-09";
+function goal(o) {
+  o = o || {};
+  return QD.makeGoal(o.name || "Fitness", { now: o.now || ms("2026-09-01", 9) });
+}
+function tk(id, imp) { return task(id, { importance: imp || "should" }); }
+function hInst(id, habitId, slotId, on) {
+  var t = QD.normTask({ id: id, title: id, bucket: "today", createdAt: ms(on, 8) }, on);
   t.habitId = habitId; t.slotId = slotId; t.genOn = on;
-  if (at) t.completedAt = at;
   return t;
 }
-t("ticking a task writes it down; unticking takes it back off", function () {
-  var a = task("a", { completedAt: ms(TODAY, 10) });
-  var d = QD.recordCompletion(QD.blankDone(), a);
-  assert.strictEqual(QD.taskDoneAt(d, "a"), ms(TODAY, 10));
-  var back = QD.recordCompletion(d, Object.assign({}, a, { completedAt: null }));
-  assert.strictEqual(QD.taskDoneAt(back, "a"), null);
+function addN(state, g, mk, n, day) {
+  var st = state;
+  for (var i = 0; i < n; i++) st = QD.addActivity(st, g, mk(i), ms(day, 9) + i);
+  return st;
+}
+t("a task is worth its priority, a habit a flat five", function () {
+  assert.strictEqual(QD.basePoints(tk("a", "must")), 8);
+  assert.strictEqual(QD.basePoints(tk("a", "should")), 6);
+  assert.strictEqual(QD.basePoints(tk("a", "nice")), 4);
+  assert.strictEqual(QD.basePoints(hInst("h", "gym", "s", GDAY)), 5);
 });
-t("a habit instance is recorded once per instance, not per tap", function () {
-  var g = hTask("g1", "gym", "s1", TODAY, ms(TODAY, 6));
-  var d = QD.recordCompletion(QD.recordCompletion(QD.blankDone(), g), g);
-  assert.strictEqual(QD.habitCountSince(d, "gym", 0), 1);
+t("the first three of a day are worth full value", function () {
+  var g = goal();
+  var st = addN({ goals: [g], activity: [] }, g, function (i) { return tk("t" + i, "must"); }, 3, GDAY);
+  assert.deepStrictEqual(st.activity.map(function (a) { return a.points; }), [8, 8, 8]);
 });
-t("two slots of one habit on the same day both count", function () {
-  var d = QD.blankDone();
-  d = QD.recordCompletion(d, hTask("p1", "pills", "morning", TODAY, ms(TODAY, 8)));
-  d = QD.recordCompletion(d, hTask("p2", "pills", "evening", TODAY, ms(TODAY, 20)));
-  assert.strictEqual(QD.habitCountSince(d, "pills", 0), 2);
+t("the fourth to sixth are halved, rounded down", function () {
+  var g = goal();
+  var st = addN({ goals: [g], activity: [] }, g, function (i) { return tk("t" + i, "nice"); }, 6, GDAY);
+  assert.deepStrictEqual(st.activity.map(function (a) { return a.points; }), [4, 4, 4, 2, 2, 2]);
 });
-t("the same slot on different days counts twice", function () {
-  var d = QD.blankDone();
-  d = QD.recordCompletion(d, hTask("g1", "gym", "s1", "2026-09-07", ms("2026-09-07", 6)));
-  d = QD.recordCompletion(d, hTask("g2", "gym", "s1", "2026-09-09", ms("2026-09-09", 6)));
-  assert.strictEqual(QD.habitCountSince(d, "gym", 0), 2);
+t("the seventh onward is a quarter, never less than one", function () {
+  var g = goal();
+  var st = addN({ goals: [g], activity: [] }, g, function (i) { return tk("t" + i, "nice"); }, 8, GDAY);
+  assert.deepStrictEqual(st.activity.slice(6).map(function (a) { return a.points; }), [1, 1],
+    "a quarter of four rounds to one, and the floor holds it there");
 });
-t("counting starts from a moment, so a goal claims only what came after it", function () {
-  var d = QD.blankDone();
-  d = QD.recordCompletion(d, hTask("g1", "gym", "s1", "2026-09-05", ms("2026-09-05", 6)));
-  d = QD.recordCompletion(d, hTask("g2", "gym", "s1", "2026-09-09", ms("2026-09-09", 6)));
-  assert.strictEqual(QD.habitCountSince(d, "gym", ms("2026-09-08", 0)), 1);
-  assert.strictEqual(QD.habitCountSince(d, "gym", 0), 2, "all of it, from the beginning");
+t("nothing banks more than the day's ceiling", function () {
+  var g = goal();
+  var st = addN({ goals: [g], activity: [] }, g, function (i) { return tk("t" + i, "must"); }, 12, GDAY);
+  var total = st.activity.reduce(function (n, a) { return n + a.points; }, 0);
+  assert.strictEqual(total, QD.MOMENTUM.dayCeiling);
+  assert.ok(st.activity.every(function (a) { return a.points >= 0; }), "and never goes negative");
 });
-t("one habit's completions are not another's", function () {
-  var d = QD.recordCompletion(QD.blankDone(), hTask("g1", "gym", "s1", TODAY, ms(TODAY, 6)));
-  assert.strictEqual(QD.habitCountSince(d, "pills", 0), 0);
+t("a new day starts the ladder again", function () {
+  var g = goal();
+  var st = addN({ goals: [g], activity: [] }, g, function (i) { return tk("a" + i, "must"); }, 3, GDAY);
+  st = addN(st, g, function (i) { return tk("b" + i, "must"); }, 1, "2026-09-10");
+  assert.strictEqual(QD.pointsOnDay(st.activity, g.id, "2026-09-10"), 8);
 });
-t("a plain task is not recorded as a habit completion", function () {
-  var d = QD.recordCompletion(QD.blankDone(), task("a", { completedAt: ms(TODAY, 10) }));
-  assert.deepStrictEqual(Object.keys(QD.normDone(d).habits), []);
-});
-t("junk in the ledger is dropped on load", function () {
-  var d = QD.normDone({ tasks: { a: "nope", b: 5 }, habits: { x: 1, y: { h: "gym", at: 9 } } });
-  assert.deepStrictEqual(d.tasks, { b: 5 });
-  assert.deepStrictEqual(Object.keys(d.habits), ["y"]);
-  [null, 42, "x", {}].forEach(function (junk) {
-    assert.deepStrictEqual(QD.normDone(junk), { tasks: {}, habits: {} });
-  });
-});
-t("pruning keeps what a goal still points at, and drops the rest", function () {
-  var d = QD.blankDone();
-  d = QD.recordCompletion(d, task("linked", { completedAt: ms(TODAY, 10) }));
-  d = QD.recordCompletion(d, task("loose", { completedAt: ms(TODAY, 10) }));
-  d = QD.recordCompletion(d, task("still-here", { completedAt: ms(TODAY, 10) }));
-  var goals = { goals: [QD.makeGoal("G", { linkedTasks: [{ id: "linked" }], now: 1 })] };
-  var out = QD.pruneDone(d, [task("still-here")], goals, ms(TODAY, 12));
-  assert.deepStrictEqual(Object.keys(out.tasks).sort(), ["linked", "still-here"]);
-});
-t("pruning keeps habit history long enough to be worth counting", function () {
-  var d = QD.blankDone();
-  d = QD.recordCompletion(d, hTask("old", "gym", "s1", "2023-01-01", Date.UTC(2023, 0, 1)));
-  d = QD.recordCompletion(d, hTask("new", "gym", "s1", TODAY, ms(TODAY, 6)));
-  var out = QD.pruneDone(d, [], { goals: [] }, ms(TODAY, 12));
-  assert.strictEqual(QD.habitCountSince(out, "gym", 0), 1, "two years is the limit");
+t("two goals each get their own day", function () {
+  var g1 = goal({ name: "One" }), g2 = goal({ name: "Two" });
+  var st = { goals: [g1, g2], activity: [] };
+  st = addN(st, g1, function (i) { return tk("a" + i, "must"); }, 3, GDAY);
+  st = addN(st, g2, function (i) { return tk("b" + i, "must"); }, 1, GDAY);
+  assert.strictEqual(QD.pointsOnDay(st.activity, g2.id, GDAY), 8, "not halved by the other goal");
 });
 
-console.log("\ngoals");
-var GYM_H = QD.makeHabit("Gym", { schedule: [
-  { recurrence: "weekly", daysOfWeek: [1, 3, 5], startTime: "06:00" }] });
-var HABITS = { habits: [GYM_H], gen: {}, lastGenOn: null };
-function goalWith(o) {
-  return QD.makeGoal(o.title || "A goal", {
-    linkedTasks: o.tasks, linkedHabits: o.habits, now: o.now || 1,
-    timeframe: o.timeframe, targetDate: o.targetDate, status: o.status
+console.log("\nmomentum: undo");
+t("reversing a completion takes its row and leaves no orphan points", function () {
+  var g = goal();
+  var one = tk("t1", "must");
+  var st = QD.addActivity({ goals: [g], activity: [] }, g, one, ms(GDAY, 9));
+  assert.strictEqual(st.activity.length, 1);
+  st = QD.removeActivity(st, one);
+  assert.deepStrictEqual(st.activity, []);
+  assert.strictEqual(QD.pointsOnDay(st.activity, g.id, GDAY), 0);
+});
+t("three musts already all but fill the day's ceiling", function () {
+  var g = goal();
+  var st = addN({ goals: [g], activity: [] }, g, function (i) { return tk("t" + i, "must"); }, 4, GDAY);
+  assert.deepStrictEqual(st.activity.map(function (a) { return a.points; }), [8, 8, 8, 1],
+    "the fourth is worth 4 by the ladder but only 1 fits under the ceiling");
+});
+t("and the rest of the day is recalculated, not left stale", function () {
+  var g = goal();
+  var made = [];
+  var st = { goals: [g], activity: [] };
+  for (var i = 0; i < 4; i++) {
+    var one = tk("t" + i, "nice");
+    made.push(one);
+    st = QD.addActivity(st, g, one, ms(GDAY, 9) + i);
+  }
+  assert.deepStrictEqual(st.activity.map(function (a) { return a.points; }), [4, 4, 4, 2]);
+  st = QD.removeActivity(st, made[0]);
+  assert.deepStrictEqual(st.activity.map(function (a) { return a.points; }), [4, 4, 4],
+    "the fourth was only halved because it was fourth");
+});
+t("an undo survives a reload, because the pre-cap value is kept", function () {
+  var g = goal();
+  var made = [], st = { goals: [g], activity: [] };
+  for (var i = 0; i < 4; i++) {
+    var one = tk("t" + i, "nice"); made.push(one);
+    st = QD.addActivity(st, g, one, ms(GDAY, 9) + i);
+  }
+  var reloaded = QD.normGoals(JSON.parse(JSON.stringify(st)));
+  var after = QD.removeActivity(reloaded, made[0]);
+  assert.deepStrictEqual(after.activity.map(function (a) { return a.points; }), [4, 4, 4]);
+});
+t("unticking a habit instance removes that instance only", function () {
+  var g = goal();
+  var mon = hInst("m", "gym", "s1", "2026-09-07");
+  var wed = hInst("w", "gym", "s1", GDAY);
+  var st = QD.addActivity({ goals: [g], activity: [] }, g, mon, ms("2026-09-07", 6));
+  st = QD.addActivity(st, g, wed, ms(GDAY, 6));
+  st = QD.removeActivity(st, wed);
+  assert.strictEqual(st.activity.length, 1);
+  assert.strictEqual(QD.pointsOnDay(st.activity, g.id, "2026-09-07"), 5);
+});
+
+console.log("\nmomentum: earning and cooling");
+function withDays(g, spec) {
+  /* spec: { "2026-09-09": 3, ... } completions of a must-task on each day */
+  var st = { goals: [g], activity: [] };
+  Object.keys(spec).sort().forEach(function (day) {
+    st = addN(st, g, function (i) { return tk(day + "-" + i, "must"); }, spec[day], day);
   });
+  return st;
 }
-t("a goal owns nothing — it names things and reads them", function () {
-  var g = goalWith({ tasks: [{ id: "a", title: "Book flights" }] });
-  assert.deepStrictEqual(g.linkedTasks, [{ id: "a", title: "Book flights" }]);
-  assert.strictEqual(g.status, "active");
-  assert.strictEqual(g.timeframe, "short");
+t("momentum is nothing until something is done", function () {
+  var g = goal();
+  assert.strictEqual(QD.goalMomentum(g, [], "2026-09-01"), 0);
 });
-t("progress over linked tasks is how many are ticked", function () {
-  var g = goalWith({ tasks: [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }] });
-  var items = [task("a", { completedAt: ms(TODAY, 9) }), task("b"), task("c"), task("d")];
-  assert.strictEqual(QD.goalPercent(g, items, QD.blankDone(), HABITS), 25);
+t("it climbs with the day's points", function () {
+  var g = goal({ now: ms("2026-09-09", 0) });
+  var st = withDays(g, { "2026-09-09": 3 });
+  assert.strictEqual(QD.goalMomentum(g, st.activity, GDAY), 24);
 });
-t("a habit counts toward its target, capped at full", function () {
-  var g = goalWith({ habits: [{ habitId: GYM_H.id, targetCount: 4 }] });
-  var d = QD.blankDone();
-  [1, 2].forEach(function (n) {
-    d = QD.recordCompletion(d, hTask("g" + n, GYM_H.id, "s1", QD.shiftKey(TODAY, -n), ms(TODAY, 6) + n));
+t("one quiet day is free", function () {
+  var g = goal({ now: ms("2026-09-09", 0) });
+  var st = withDays(g, { "2026-09-09": 3 });
+  assert.strictEqual(QD.goalMomentum(g, st.activity, "2026-09-10"), 24, "the grace day");
+});
+t("each further quiet day costs four", function () {
+  var g = goal({ now: ms("2026-09-09", 0) });
+  var st = withDays(g, { "2026-09-09": 3 });
+  /* 09-10 is the grace day; it only counts once it has closed, so the first
+     four points come off on the 12th. */
+  assert.strictEqual(QD.goalMomentum(g, st.activity, "2026-09-12"), 20);
+  assert.strictEqual(QD.goalMomentum(g, st.activity, "2026-09-13"), 16);
+});
+t("it floors at nothing and never goes into debt", function () {
+  var g = goal({ now: ms("2026-09-09", 0) });
+  var st = withDays(g, { "2026-09-09": 1 });
+  assert.strictEqual(QD.goalMomentum(g, st.activity, "2026-10-30"), 0);
+});
+t("it is clamped at a hundred however hard the week", function () {
+  var g = goal({ now: ms("2026-09-01", 0) });
+  var spec = {};
+  for (var i = 1; i <= 20; i++) spec["2026-09-" + (i < 10 ? "0" + i : i)] = 6;
+  var st = withDays(g, spec);
+  assert.strictEqual(QD.goalMomentum(g, st.activity, "2026-09-20"), 100);
+});
+t("today never decays — a day only counts once it has closed", function () {
+  var g = goal({ now: ms("2026-09-09", 0) });
+  var st = withDays(g, { "2026-09-09": 3 });
+  assert.strictEqual(QD.goalMomentum(g, st.activity, "2026-09-11"), 24,
+    "the 11th is still in progress; only the 10th has closed, and it was the grace day");
+  assert.strictEqual(QD.goalMomentum(g, st.activity, "2026-09-12"), 20,
+    "cooling shows the following morning, not the moment midnight passes");
+});
+t("a paused goal holds its value, frozen", function () {
+  var g = goal({ now: ms("2026-09-09", 0) });
+  var st = withDays(g, { "2026-09-09": 3 });
+  var settled = QD.settleGoal(g, st.activity, "2026-09-11");
+  var paused = QD.normGoal(Object.assign({}, settled, { active: false }));
+  var held = QD.goalMomentum(paused, st.activity, "2026-11-01");
+  assert.strictEqual(held, paused.momentum, "months later, unchanged");
+  assert.ok(held > 0);
+});
+t("work done before the goal existed does not backfill it", function () {
+  var g = goal({ now: ms("2026-09-09", 0) });
+  var st = QD.addActivity({ goals: [g], activity: [] }, g, tk("early", "must"), ms("2026-09-01", 9));
+  assert.deepStrictEqual(st.activity, []);
+});
+
+console.log("\nmomentum: the cached checkpoint");
+t("settling matches replaying the whole log", function () {
+  var g = goal({ now: ms("2026-09-01", 0) });
+  var st = withDays(g, { "2026-09-02": 2, "2026-09-03": 1, "2026-09-07": 3, "2026-09-09": 1 });
+  var replayed = QD.goalMomentum(g, st.activity, "2026-09-12");
+  var settled = QD.settleGoal(g, st.activity, "2026-09-12");
+  assert.strictEqual(QD.goalMomentum(settled, st.activity, "2026-09-12"), replayed);
+});
+t("settling twice changes nothing", function () {
+  var g = goal({ now: ms("2026-09-01", 0) });
+  var st = withDays(g, { "2026-09-02": 2, "2026-09-07": 3 });
+  var once = QD.settleGoal(g, st.activity, "2026-09-12");
+  var twice = QD.settleGoal(once, st.activity, "2026-09-12");
+  assert.deepStrictEqual(twice, once);
+});
+t("settling day by day matches settling in one jump", function () {
+  var g = goal({ now: ms("2026-09-01", 0) });
+  var st = withDays(g, { "2026-09-02": 3, "2026-09-05": 2, "2026-09-08": 1 });
+  var step = g;
+  ["2026-09-03","2026-09-04","2026-09-05","2026-09-06","2026-09-07","2026-09-08",
+   "2026-09-09","2026-09-10"].forEach(function (d) {
+    step = QD.settleGoal(step, st.activity, d);
   });
-  assert.strictEqual(QD.goalPercent(g, [], d, HABITS), 50);
-  [3, 4, 5, 6].forEach(function (n) {
-    d = QD.recordCompletion(d, hTask("g" + n, GYM_H.id, "s1", QD.shiftKey(TODAY, -n), ms(TODAY, 6) + n));
+  var jump = QD.settleGoal(g, st.activity, "2026-09-10");
+  assert.strictEqual(step.momentum, jump.momentum,
+    "opening the app every day and opening it once a week agree");
+});
+t("the cache can be thrown away and rebuilt from the log", function () {
+  var g = goal({ now: ms("2026-09-01", 0) });
+  var st = withDays(g, { "2026-09-02": 2, "2026-09-07": 3 });
+  var settled = QD.settleGoal(g, st.activity, "2026-09-12");
+  var wiped = QD.normGoal(Object.assign({}, settled, { momentum: 0, momentumAsOf: null }));
+  assert.strictEqual(QD.goalMomentum(wiped, st.activity, "2026-09-12"),
+                     QD.goalMomentum(settled, st.activity, "2026-09-12"));
+});
+t("settling leaves today alone, so today can still earn", function () {
+  var g = goal({ now: ms("2026-09-08", 0) });
+  var st = withDays(g, { "2026-09-08": 1, "2026-09-09": 2 });
+  var settled = QD.settleGoal(g, st.activity, GDAY);
+  assert.strictEqual(settled.momentumAsOf, "2026-09-08");
+  assert.strictEqual(QD.goalMomentum(settled, st.activity, GDAY), 8 + 16);
+});
+
+console.log("\nmomentum: how it reads");
+t("bands cover the whole range with no gap", function () {
+  assert.strictEqual(QD.momentumBand(0).id, "dormant");
+  assert.strictEqual(QD.momentumBand(19).id, "dormant");
+  assert.strictEqual(QD.momentumBand(20).id, "warm");
+  assert.strictEqual(QD.momentumBand(49).id, "warm");
+  assert.strictEqual(QD.momentumBand(50).id, "ember");
+  assert.strictEqual(QD.momentumBand(79).id, "ember");
+  assert.strictEqual(QD.momentumBand(80).id, "alight");
+  assert.strictEqual(QD.momentumBand(100).id, "alight");
+});
+t("the line states what is happening and nothing about what it means", function () {
+  var g = goal({ now: ms("2026-09-09", 0) });
+  var st = withDays(g, { "2026-09-09": 3 });
+  assert.strictEqual(QD.momentumLine(g, st.activity, GDAY), "Warm — active today");
+  /* A goal made earlier, so the days before it are its to claim. */
+  var older = goal({ now: ms("2026-09-01", 0) });
+  var run = withDays(older, { "2026-09-07": 3, "2026-09-08": 3, "2026-09-09": 3 });
+  assert.strictEqual(QD.momentumLine(older, run.activity, GDAY), "Ember — 3 days running");
+  assert.strictEqual(QD.momentumLine(g, st.activity, "2026-09-12"),
+    "Warm — last activity Wednesday");
+});
+t("a goal with nothing logged says so plainly", function () {
+  var g = goal();
+  assert.strictEqual(QD.momentumLine(g, [], GDAY), "Dormant — nothing logged yet");
+});
+t("a paused goal simply says paused", function () {
+  var g = QD.normGoal(Object.assign({}, goal(), { active: false }));
+  assert.strictEqual(QD.momentumLine(g, [], GDAY), "Paused");
+});
+t("no goal copy scolds, warns or exclaims", function () {
+  var g = goal({ now: ms("2026-09-01", 0) });
+  var st = withDays(g, { "2026-09-02": 1 });
+  ["2026-09-03", "2026-09-10", "2026-09-30", "2026-11-01"].forEach(function (d) {
+    var line = QD.momentumLine(g, st.activity, d);
+    assert.ok(line.indexOf("!") === -1, line);
+    assert.ok(!/neglect|slip|broken|behind|fail|lost|streak|warning/i.test(line), line);
   });
-  assert.strictEqual(QD.goalPercent(g, [], d, HABITS), 100, "six of four is still full, not 150");
 });
-t("every linked thing counts once, a habit no more than a task", function () {
-  var g = goalWith({ tasks: [{ id: "a" }], habits: [{ habitId: GYM_H.id, targetCount: 30 }] });
-  var items = [task("a", { completedAt: ms(TODAY, 9) })];
-  assert.strictEqual(QD.goalPercent(g, items, QD.blankDone(), HABITS), 50,
-    "one task done, a habit at nothing: half, not 1/31");
+t("no band label is a number or a percentage", function () {
+  QD.BANDS.forEach(function (b) {
+    assert.ok(!/\d|%/.test(b.label), b.label);
+  });
 });
-t("a goal with nothing linked sits at zero rather than dividing by none", function () {
-  var g = goalWith({});
-  assert.strictEqual(QD.goalPercent(g, [], QD.blankDone(), HABITS), 0);
-  assert.strictEqual(QD.goalIsDone(g, [], QD.blankDone(), HABITS), false,
-    "and is never automatically finished");
+
+console.log("\nmomentum: the record");
+t("the record is newest first and grouped by day", function () {
+  var g = goal({ now: ms("2026-09-01", 0) });
+  var st = withDays(g, { "2026-09-02": 2, "2026-09-09": 1 });
+  var rec = QD.goalRecord(st.activity, g.id, 0, 30);
+  assert.deepStrictEqual(rec.days.map(function (d) { return d.day; }), [GDAY, "2026-09-02"]);
+  assert.strictEqual(rec.days[1].items.length, 2);
+  assert.strictEqual(rec.total, 3);
+  assert.strictEqual(rec.more, false);
 });
-t("a linked task ticked before midnight still counts the next day", function () {
-  var g = goalWith({ tasks: [{ id: "a", title: "Book flights" }, { id: "b" }] });
-  var d = QD.recordCompletion(QD.blankDone(), task("a", { completedAt: ms("2026-09-08", 10) }));
-  /* the rollover has since taken the completed task off the list entirely */
-  assert.strictEqual(QD.goalPercent(g, [task("b")], d, HABITS), 50);
-  var shown = QD.goalItems(g, [task("b")], d, HABITS);
-  assert.strictEqual(shown[0].title, "Book flights", "and the goal can still name it");
-  assert.strictEqual(shown[0].gone, true);
+t("it pages rather than handing back the whole history", function () {
+  var g = goal({ now: ms("2026-09-01", 0) });
+  var st = addN({ goals: [g], activity: [] }, g, function (i) { return tk("t" + i); }, 40, "2026-09-02");
+  var first = QD.goalRecord(st.activity, g.id, 0, 30);
+  assert.strictEqual(first.days[0].items.length, 30);
+  assert.strictEqual(first.more, true);
+  var second = QD.goalRecord(st.activity, g.id, 30, 30);
+  assert.strictEqual(second.days[0].items.length, 10);
+  assert.strictEqual(second.more, false);
 });
-t("a goal is done when everything linked is", function () {
-  var g = goalWith({ tasks: [{ id: "a" }, { id: "b" }] });
-  var items = [task("a", { completedAt: 1 }), task("b", { completedAt: 2 })];
-  assert.strictEqual(QD.goalIsDone(g, items, QD.blankDone(), HABITS), true);
+t("it keeps the name as it was, even after the task is gone", function () {
+  var g = goal({ now: ms("2026-09-01", 0) });
+  var one = task("t", { title: "Swim a kilometre" });
+  var st = QD.addActivity({ goals: [g], activity: [] }, g, one, ms(GDAY, 9));
+  var rec = QD.goalRecord(st.activity, g.id, 0, 30);
+  assert.strictEqual(rec.days[0].items[0].title, "Swim a kilometre");
 });
-t("or when the user says so, however far along it is", function () {
-  var g = goalWith({ tasks: [{ id: "a" }, { id: "b" }], status: "done" });
-  assert.strictEqual(QD.goalIsDone(g, [task("a"), task("b")], QD.blankDone(), HABITS), true);
-  assert.strictEqual(QD.goalPercent(g, [task("a"), task("b")], QD.blankDone(), HABITS), 0,
-    "the percentage stays honest about what was actually finished");
+t("one goal's record is not another's", function () {
+  var g1 = goal({ name: "One" }), g2 = goal({ name: "Two" });
+  var st = { goals: [g1, g2], activity: [] };
+  st = QD.addActivity(st, g1, tk("a"), ms(GDAY, 9));
+  st = QD.addActivity(st, g2, tk("b"), ms(GDAY, 10));
+  assert.strictEqual(QD.goalRecord(st.activity, g1.id, 0, 30).total, 1);
 });
-t("finished goals move down the list, they do not disappear", function () {
-  var open = goalWith({ title: "Open", tasks: [{ id: "a" }], now: 1 });
-  var shut = goalWith({ title: "Shut", tasks: [{ id: "b" }], now: 2 });
-  var items = [task("a"), task("b", { completedAt: 1 })];
-  var split = QD.splitGoals({ goals: [open, shut] }, items, QD.blankDone(), HABITS);
-  assert.deepStrictEqual(split.active.map(function (g) { return g.title; }), ["Open"]);
-  assert.deepStrictEqual(split.done.map(function (g) { return g.title; }), ["Shut"]);
+
+console.log("\nmomentum: the list");
+t("the liveliest goal leads the list", function () {
+  var hot = goal({ name: "Hot", now: ms("2026-09-01", 0) });
+  var cold = goal({ name: "Cold", now: ms("2026-09-01", 0) });
+  var st = { goals: [cold, hot], activity: [] };
+  st = addN(st, hot, function (i) { return tk("h" + i, "must"); }, 3, GDAY);
+  var out = QD.goalsByMomentum(st, GDAY);
+  assert.deepStrictEqual(out.active.map(function (g) { return g.name; }), ["Hot", "Cold"]);
 });
-t("an archived goal is in neither list", function () {
-  var g = goalWith({ title: "Old", status: "archived" });
-  var split = QD.splitGoals({ goals: [g] }, [], QD.blankDone(), HABITS);
-  assert.strictEqual(split.active.length + split.done.length, 0);
+t("paused goals sit apart, not among the live ones", function () {
+  var live = goal({ name: "Live" });
+  var off = QD.normGoal(Object.assign({}, goal({ name: "Off" }), { active: false }));
+  var out = QD.goalsByMomentum({ goals: [live, off], activity: [] }, GDAY);
+  assert.deepStrictEqual(out.active.map(function (g) { return g.name; }), ["Live"]);
+  assert.deepStrictEqual(out.paused.map(function (g) { return g.name; }), ["Off"]);
 });
-t("the list holds its order however the goals arrive", function () {
-  var a = goalWith({ title: "A", now: 1 }), b = goalWith({ title: "B", now: 2 });
-  assert.deepStrictEqual(QD.sortGoals([b, a]).map(function (g) { return g.title; }), ["A", "B"]);
-  assert.deepStrictEqual(QD.sortGoals([a, b]).map(function (g) { return g.title; }), ["A", "B"]);
-});
-t("a linked thing that has been deleted is named, not crashed on", function () {
-  var g = goalWith({ tasks: [{ id: "ghost" }], habits: [{ habitId: "ghost-h", targetCount: 3 }] });
-  var shown = QD.goalItems(g, [], QD.blankDone(), HABITS);
-  assert.strictEqual(shown.length, 2);
-  assert.ok(shown.every(function (i) { return i.gone === true && !!i.title; }));
-  assert.strictEqual(QD.goalPercent(g, [], QD.blankDone(), HABITS), 0);
-});
-t("duplicate links are folded, so one thing counts once", function () {
-  var g = goalWith({ tasks: [{ id: "a" }, { id: "a" }],
-    habits: [{ habitId: "h", targetCount: 2 }, { habitId: "h", targetCount: 9 }] });
-  assert.strictEqual(g.linkedTasks.length, 1);
-  assert.strictEqual(g.linkedHabits.length, 1);
-  assert.strictEqual(g.linkedHabits[0].targetCount, 2, "the first one wins");
-});
-t("a target count below one is not allowed to divide by zero", function () {
-  var g = goalWith({ habits: [{ habitId: "h", targetCount: 0 }] });
-  assert.strictEqual(g.linkedHabits[0].targetCount, 1);
-  assert.strictEqual(QD.goalPercent(g, [], QD.blankDone(), HABITS), 0);
-});
-t("junk goals are dropped on load", function () {
-  var out = QD.normGoals({ goals: [null, 42, { title: "" }, { title: "Real" }] });
-  assert.deepStrictEqual(out.goals.map(function (g) { return g.title; }), ["Real"]);
+t("junk goals and activity are dropped on load", function () {
+  var out = QD.normGoals({ goals: [null, 42, { name: "" }, { name: "Real" }],
+    activity: [null, { goalId: "g" }, { goalId: "g", sourceId: "s", completedAt: 5 }] });
+  assert.deepStrictEqual(out.goals.map(function (g) { return g.name; }), ["Real"]);
+  assert.strictEqual(out.activity.length, 1);
   [null, 42, "x", {}].forEach(function (junk) {
-    assert.deepStrictEqual(QD.normGoals(junk).goals, []);
+    assert.deepStrictEqual(QD.normGoals(junk), { goals: [], activity: [] });
   });
 });
-t("the item line states the count, never a verdict on the pace", function () {
-  assert.strictEqual(QD.goalItemLabel({ kind: "habit", count: 8, target: 30 }), "8 of 30");
-  assert.strictEqual(QD.goalItemLabel({ kind: "task", doneAt: 1 }), "Done");
-  assert.strictEqual(QD.goalItemLabel({ kind: "task", doneAt: null }), "Not yet");
+t("a goal written before the rewrite keeps its name", function () {
+  var old = QD.normGoal({ id: "g1", title: "Get away in summer", createdAt: 1,
+    timeframe: "long", linkedTasks: [{ id: "a" }], status: "active" });
+  assert.strictEqual(old.name, "Get away in summer");
+  assert.strictEqual(old.momentum, 0);
+  assert.strictEqual(old.active, true);
 });
-t("a target date is stated plainly, late or not", function () {
-  assert.strictEqual(QD.targetDateLabel({ targetDate: TODAY }, TODAY), "Target today");
-  assert.strictEqual(QD.targetDateLabel({ targetDate: "2026-09-10" }, TODAY), "Target tomorrow");
-  assert.strictEqual(QD.targetDateLabel({ targetDate: "2026-09-20" }, TODAY), "Target 20 Sep");
-  assert.strictEqual(QD.targetDateLabel({ targetDate: "2026-09-01" }, TODAY), "Target was 1 Sep");
-  assert.strictEqual(QD.targetDateLabel({ targetDate: null }, TODAY), "");
+
+
+console.log("\ngoals: what a task or habit belongs to");
+t("a task can carry a goal, and it survives a reload", function () {
+  var t1 = QD.makeTask("Book it", { today: TODAY, goalId: "g1" });
+  assert.strictEqual(t1.goalId, "g1");
+  var back = QD.migrate({ version: 2, items: [t1], doneYesterday: 0, lastRollOn: TODAY }, TODAY);
+  assert.strictEqual(back.items[0].goalId, "g1");
 });
-t("timeframe is a label and changes no arithmetic", function () {
-  var shortG = goalWith({ tasks: [{ id: "a" }], timeframe: "short" });
-  var longG = goalWith({ tasks: [{ id: "a" }], timeframe: "long" });
-  var items = [task("a", { completedAt: 1 })];
-  assert.strictEqual(QD.goalPercent(shortG, items, QD.blankDone(), HABITS),
-                     QD.goalPercent(longG, items, QD.blankDone(), HABITS));
+t("a task with no goal says so plainly rather than being undefined", function () {
+  assert.strictEqual(QD.makeTask("Plain", { today: TODAY }).goalId, null);
 });
-t("no goal copy carries an exclamation or a scolding", function () {
-  ["8 of 30", "Done", "Not yet"].forEach(function (s) {
-    assert.ok(s.indexOf("!") === -1);
-  });
-  assert.ok(QD.targetDateLabel({ targetDate: "2026-09-01" }, TODAY).indexOf("!") === -1);
-  assert.ok(!/overdue|late|behind|failed/i.test(QD.targetDateLabel({ targetDate: "2026-09-01" }, TODAY)));
+t("a goal can be set and cleared through the usual patch", function () {
+  var t1 = QD.makeTask("Book it", { today: TODAY });
+  var on = QD.applyPatch(t1, { goalId: "g1" }, TODAY, 1);
+  assert.strictEqual(on.goalId, "g1");
+  assert.strictEqual(QD.applyPatch(on, { goalId: null }, TODAY, 2).goalId, null);
+});
+t("a habit's goal is inherited by every instance it mints", function () {
+  var hb = QD.makeHabit("Swim", { goalId: "g1", schedule: [
+    { recurrence: "weekly", daysOfWeek: [3], startTime: "06:00" }] });
+  assert.strictEqual(hb.goalId, "g1");
+  var out = QD.generateHabitTasks({ habits: [hb], gen: {}, lastGenOn: null }, [], "2026-09-09", 1);
+  assert.strictEqual(out.added.length, 1);
+  assert.strictEqual(out.added[0].goalId, "g1");
+});
+t("changing a habit's goal only reaches instances minted afterwards", function () {
+  var hb = QD.makeHabit("Swim", { goalId: "g1", schedule: [
+    { recurrence: "weekly", daysOfWeek: [1,2,3,4,5,6,0], startTime: "06:00" }] });
+  var one = QD.generateHabitTasks({ habits: [hb], gen: {}, lastGenOn: null }, [], "2026-09-09", 1);
+  var moved = QD.normHabit(Object.assign({}, hb, { goalId: "g2" }));
+  var two = QD.generateHabitTasks({ habits: [moved], gen: one.habits.gen, lastGenOn: null },
+    one.items, "2026-09-10", 2);
+  assert.strictEqual(two.items[0].goalId, "g1", "yesterday's instance is untouched");
+  assert.strictEqual(two.added[0].goalId, "g2");
 });
 
 console.log("\n" + pass + " passed, " + fail + " failed\n");

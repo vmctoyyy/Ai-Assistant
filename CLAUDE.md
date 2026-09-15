@@ -10,7 +10,9 @@ deployment carries that branch as its ref, and none has ever been cut for a
 "fix" this by pushing only to `main` — that would deploy nothing.
 
 The app is a home screen plus five apps: **Tasks**, **Recap**, **Quotes**,
-**Shopping** (carts), **Goals**, and one non-tappable placeholder. Home is a fixed
+**Shopping** (carts), **Goals**, and one non-tappable placeholder. Goals was
+rebuilt around momentum; the percentage-complete version and the `done`
+completions ledger it needed are both gone, and `done` is a dead storage key. Home is a fixed
 non-scrolling page — a 25% header (date + the day's quote) over a 75% grid of
 six icons. **Habits** is a fifth app reached from the Tasks hot bar rather than
 the home grid — that was the user's explicit choice, so do not promote it to a
@@ -214,35 +216,55 @@ worker not applying itself, which is fixed under Non-negotiables below.)
   on the last day of a shorter month rather than skipping February.
 - **Days are stored 0–6 from Sunday but always read Mon–Sun** (`weekOrder`).
   Sorting them numerically for display gives "Sun/Sat", which is wrong.
-- **A goal owns nothing.** It names existing tasks and habits and reads their
-  state; deleting one takes the container and leaves every task and habit
-  untouched — there are assertions for that. Nothing in the goal actions
-  writes to a task or a habit.
-- **The completions ledger (`done`) exists because nothing else records what
-  was finished.** `rollDay` deletes a completed task outright at midnight, and
-  the recap archive keeps only a title — no `habitId` — pruned at 60 days. So
-  a goal's checklist would empty itself overnight and a habit count would have
-  nothing to count. The ledger is written by the same tick that completes the
-  task (`recordCompletion` in `toggleTask`) and unwritten by the tick that
-  undoes it, so it cannot drift: still one source of truth, written down once
-  centrally, not copied per goal. Habit entries are keyed
-  `habitId:slotId:genOn`, so ticking one morning's gym twice records it once
-  and two slots on one day both count.
-- **Past completions are unrecoverable**, because nothing was recording them.
-  Counts necessarily start when the ledger did. This suits the spec's
-  "completions since the goal was created" rule, but a goal linked to a habit
-  cannot be backdated.
-- **`pruneDone` is what stops the ledger growing for ever**: a task entry is
-  kept only while a goal points at it or the task is still on the list; habit
-  entries live two years. It runs at boot, against the goals — not the task
-  list — or it would drop exactly the entries goals need.
-- **Every linked thing counts once**, a habit needing thirty sessions no more
-  than a single task. A goal with nothing linked sits at zero and is never
-  automatically done.
+- **A goal owns nothing, and momentum is derived.** A goal names existing
+  tasks and habits through their `goalId` and reads what they have done. It
+  has no target, no deadline and no completion criteria — deliberately; it is
+  a direction, not a contract. Deleting one *unlinks* its tasks and habits
+  rather than deleting them, and takes only its own record.
+- **Never show the number.** Momentum reads as a band — Dormant / Warm /
+  Ember / Alight — carried by the bubble's own warmth. A score or a percentage
+  is the progress bar coming back in disguise, and a test asserts no `%`
+  appears on either goal screen. Only Alight gets fire, kept to amber and
+  gold; heat never leaves the Goals screen.
+- **Every number that shapes the feel lives in `MOMENTUM`** in `logic.js`:
+  points (8/6/4 by importance, 5 flat for a habit), the daily ladder
+  (3 at full, 3 at half, the rest at a quarter with a floor of 1), the 25/day
+  ceiling, the single grace day and the 4/day decay. They are a first
+  calibration meant to be retuned after a fortnight — change them there.
+  Note the spec's own note that "about a week of silence returns a full goal
+  to Dormant" does not hold at 4/day: a week removes 28, and 100 → Dormant
+  needs 81, so about three weeks. Decay would need to be ~14/day to match.
+- **`points` is stored per row, and `base` beside it.** `base` is the value
+  before the day's ladder and ceiling; without it, an undo after a reload
+  would recalculate from the already-capped figure and quietly shrink the
+  rest of the day. `repointDay` re-walks a goal's day in completion order
+  whenever a row is added or removed, so removing the second completion
+  correctly re-scores the fifth.
+- **The checkpoint is settled to the end of *yesterday*, never today.** Today
+  is still earning, so it is left out of the cache and folded in live by
+  `goalMomentum`. A new goal's `momentumAsOf` is the day *before* it was
+  created, or its first day would be skipped.
+- **Only a closed day can be a quiet day.** `rollMomentum` takes the real
+  `today` and skips decay on it, so cooling appears the following morning
+  rather than the instant midnight passes. That parameter is not the end of
+  the roll — keying it off the roll's end made settling to yesterday skip
+  yesterday's decay, and the cache silently disagreed with a replay. There
+  are assertions that settling matches replaying, that settling twice is a
+  no-op, and that settling daily matches settling once a week.
+- **A paused goal neither earns nor cools.** Pausing settles first, so it
+  freezes the value it actually had rather than a stale checkpoint.
+- **Activity before the goal existed is refused** (`addActivity` drops it).
+- **A habit's `goalId` is inherited by every instance it mints**, set once on
+  the habit. Changing it reaches future instances only.
 - **A habit's own generated task is not offered in the task picker.** It is
-  minted fresh each morning and cleared at the rollover, so linking one as a
-  task would hand the goal a checklist item that disappears overnight — the
-  habit itself is the thing to link.
+  minted fresh each morning and cleared at the rollover — link the habit.
+- **The row control on a goal screen unlinks, and says so.** `TaskRow` takes
+  `removeLabel`; without it the aria-label read "Delete: …" while the button
+  unlinked, which told a screen reader the wrong thing.
+- **The record is the point of the feature.** It survives the underlying task
+  being edited or deleted because each row snapshots the title at completion
+  time, and it pages (`goalRecord(activity, goalId, offset, limit)`) because
+  it is the part that grows without limit.
 - **Reminders are calendar events, not push.** iOS Web Push needs a server
   signing with VAPID keys; this app has no server, and Notification Triggers
   is not in Safari. `buildICS` writes a `VALARM` at `-PT30M`.
