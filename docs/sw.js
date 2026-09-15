@@ -1,6 +1,6 @@
 /* Quiet Desk service worker — precache everything, serve cache-first.
    Bump CACHE when any asset below changes. */
-var CACHE = "quiet-desk-v21";
+var CACHE = "quiet-desk-v22";
 
 var ASSETS = [
   "./",

@@ -139,7 +139,8 @@
       endTime: validTime(opts.endTime),
       habitId: opts.habitId || null,
       slotId: opts.slotId || null,
-      genOn: validDate(opts.genOn)
+      genOn: validDate(opts.genOn),
+      goalId: opts.goalId || null
     };
   }
 
@@ -167,7 +168,8 @@
       endTime: validTime(t.endTime),
       habitId: t.habitId || null,
       slotId: t.slotId || null,
-      genOn: validDate(t.genOn)
+      genOn: validDate(t.genOn),
+      goalId: t.goalId || null
     };
   }
 
@@ -218,6 +220,7 @@
     if (changes.dueDate !== undefined) next.dueDate = validDate(changes.dueDate);
     if (changes.dueTime !== undefined) next.dueTime = validTime(changes.dueTime);
     if (changes.endTime !== undefined) next.endTime = validTime(changes.endTime);
+    if (changes.goalId !== undefined) next.goalId = changes.goalId || null;
     if (changes.bucket && changes.bucket !== task.bucket) {
       next.notTodayOn = null;
       next.firstTodayOn = changes.bucket === "today" ? today : null;
@@ -1025,6 +1028,7 @@
       importance: IMPORTANCE.indexOf(hb.importance) >= 0 ? hb.importance : "should",
       active: hb.active === false ? false : true,
       schedule: slots,
+      goalId: hb.goalId || null,
       createdAt: created
     };
   }
@@ -1054,7 +1058,7 @@
     opts = opts || {};
     return normHabit({
       id: opts.id, name: name, importance: opts.importance,
-      active: opts.active, schedule: opts.schedule,
+      active: opts.active, schedule: opts.schedule, goalId: opts.goalId,
       createdAt: typeof opts.now === "number" ? opts.now : Date.now()
     });
   }
@@ -1157,6 +1161,8 @@
         t.slotId = slot.id;
         t.genOn = today;
         t.endTime = slot.endTime;
+        /* Set once on the habit; every instance it mints carries it. */
+        t.goalId = habit.goalId || null;
         added.push(t);
       });
     });
@@ -1178,231 +1184,285 @@
     });
   }
 
-  /* ---------- the completions ledger ----------
-     Goals watch tasks and habits rather than copying them, which needs a
-     record of what has been finished. Neither existed: rollDay deletes a
-     completed task outright at midnight, and the recap archive keeps only a
-     title — no habitId — pruned at 60 days. So a goal's checklist would empty
-     itself overnight and a habit count would have nothing to count.
+  /* ---------- goals: momentum ----------
+     A goal is not a checklist that fills up. It stays alight while the user
+     keeps showing up and cools when they do not. Momentum is derived from the
+     activity log and today's date and is never set by hand.
 
-     This ledger is written by the same tick that completes the task and
-     unwritten by the tick that undoes it, so it cannot drift from the thing it
-     records: still one source of truth, written down once centrally, rather
-     than a copy kept per goal. */
-  function blankDone() { return { tasks: {}, habits: {} }; }
+     Every number that shapes the feel of it lives here, so it can be retuned
+     after a fortnight of living with it without hunting through the code. */
+  var MOMENTUM = {
+    max: 100,
+    taskPoints: { must: 8, should: 6, nice: 4 },   /* the app's own priority field */
+    habitPoints: 5,                                /* flat: recurring is the point */
+    fullFor: 3,                                    /* 1st-3rd of a day at full value */
+    halfFor: 3,                                    /* 4th-6th at half, rounded down */
+    quarterMin: 1,                                 /* 7th onward at a quarter, never 0 */
+    dayCeiling: 25,                                /* nothing banks a week in one sitting */
+    graceDays: 1,                                  /* one quiet day costs nothing */
+    decayPerDay: 4
+  };
+  var BANDS = [
+    { id: "dormant", label: "Dormant", from: 0 },
+    { id: "warm", label: "Warm", from: 20 },
+    { id: "ember", label: "Ember", from: 50 },
+    { id: "alight", label: "Alight", from: 80 }
+  ];
 
-  function normDone(v) {
-    var out = blankDone();
-    if (!v || typeof v !== "object") return out;
-    if (v.tasks && typeof v.tasks === "object") {
-      Object.keys(v.tasks).forEach(function (k) {
-        if (typeof v.tasks[k] === "number") out.tasks[k] = v.tasks[k];
-      });
-    }
-    if (v.habits && typeof v.habits === "object") {
-      Object.keys(v.habits).forEach(function (k) {
-        var e = v.habits[k];
-        if (e && typeof e === "object" && typeof e.at === "number" && e.h) {
-          out.habits[k] = { h: String(e.h), at: e.at };
-        }
-      });
-    }
-    return out;
-  }
+  function blankGoals() { return { goals: [], activity: [] }; }
 
-  /* One key per habit instance, so ticking the same morning's gym twice
-     records it once and unticking takes it back off. */
-  function habitDoneKey(t) {
-    return isHabitTask(t) ? t.habitId + ":" + t.slotId + ":" + t.genOn : null;
-  }
-  function recordCompletion(done, task) {
-    var out = normDone(done);
-    var hk = habitDoneKey(task);
-    if (task.completedAt) {
-      out.tasks[task.id] = task.completedAt;
-      if (hk) out.habits[hk] = { h: task.habitId, at: task.completedAt };
-    } else {
-      delete out.tasks[task.id];
-      if (hk) delete out.habits[hk];
-    }
-    return out;
-  }
-  function taskDoneAt(done, id) {
-    var d = normDone(done);
-    return typeof d.tasks[id] === "number" ? d.tasks[id] : null;
-  }
-  /* Completions of one habit at or after a moment. Goals count from when they
-     were made, so anything finished earlier is not theirs to claim. */
-  function habitCountSince(done, habitId, sinceMs) {
-    var d = normDone(done), n = 0;
-    Object.keys(d.habits).forEach(function (k) {
-      var e = d.habits[k];
-      if (e.h === habitId && e.at >= (sinceMs || 0)) n += 1;
-    });
-    return n;
-  }
-  /* Keeps the ledger from growing without end: a task entry is worth holding
-     only while some goal points at it or the task is still on the list, and a
-     habit entry outlives any goal that could reasonably still be counting. */
-  function pruneDone(done, items, goals, nowMs) {
-    var d = normDone(done), out = blankDone();
-    var keep = {};
-    (items || []).forEach(function (t) { keep[t.id] = true; });
-    ((goals && goals.goals) || []).forEach(function (g) {
-      g.linkedTasks.forEach(function (link) { keep[link.id] = true; });
-    });
-    Object.keys(d.tasks).forEach(function (k) { if (keep[k]) out.tasks[k] = d.tasks[k]; });
-    var floor = (typeof nowMs === "number" ? nowMs : Date.now()) - 730 * 86400000;
-    Object.keys(d.habits).forEach(function (k) {
-      if (d.habits[k].at >= floor) out.habits[k] = d.habits[k];
-    });
-    return out;
-  }
-
-  /* ---------- goals ----------
-     A goal owns nothing. It names things that already exist and reads their
-     state; deleting one takes the container and leaves every task and habit
-     exactly as it was. */
-  var TIMEFRAMES = ["short", "long"];
-  var GOAL_STATUS = ["active", "done", "archived"];
-
-  function blankGoals() { return { goals: [] }; }
-
-  function normLink(l) {
-    if (!l || !l.habitId) return null;
-    var n = typeof l.targetCount === "number" ? l.targetCount : parseInt(l.targetCount, 10);
-    if (!isFinite(n) || n < 1) n = 1;
-    return { habitId: String(l.habitId), targetCount: Math.floor(n) };
-  }
-  /* A linked task keeps a copy of its title — not its state. The tick stays
-     the only truth; the title is so a goal can still name what it was
-     watching after the midnight clear has taken the task away. */
-  function normLinkedTask(t) {
-    if (typeof t === "string") return { id: t, title: "" };
-    if (!t || !t.id) return null;
-    return { id: String(t.id), title: t.title ? String(t.title) : "" };
-  }
   function normGoal(g) {
-    if (!g || !g.title || !String(g.title).trim()) return null;
-    var seenT = {}, seenH = {};
-    var tasks = (Array.isArray(g.linkedTasks) ? g.linkedTasks : [])
-      .map(normLinkedTask).filter(function (t) {
-        if (!t || seenT[t.id]) return false;
-        seenT[t.id] = true; return true;
-      });
-    var habits = (Array.isArray(g.linkedHabits) ? g.linkedHabits : [])
-      .map(normLink).filter(function (l) {
-        if (!l || seenH[l.habitId]) return false;
-        seenH[l.habitId] = true; return true;
-      });
+    /* `title` is the old percentage-era field; read it so a goal made before
+       the rewrite keeps its name instead of being dropped as junk. */
+    var name = g && (g.name || g.title);
+    if (!g || !name || !String(name).trim()) return null;
+    var created = typeof g.createdAt === "number" ? g.createdAt : Date.now();
     return {
       id: g.id || uid(),
-      title: String(g.title).trim(),
-      timeframe: TIMEFRAMES.indexOf(g.timeframe) >= 0 ? g.timeframe : "short",
-      targetDate: validDate(g.targetDate),
-      linkedTasks: tasks,
-      linkedHabits: habits,
-      status: GOAL_STATUS.indexOf(g.status) >= 0 ? g.status : "active",
-      createdAt: typeof g.createdAt === "number" ? g.createdAt : Date.now()
+      name: String(name).trim(),
+      description: g.description ? String(g.description).trim() : "",
+      active: g.active === false ? false : true,
+      createdAt: created,
+      momentum: typeof g.momentum === "number"
+        ? Math.max(0, Math.min(MOMENTUM.max, g.momentum)) : 0,
+      momentumAsOf: validDate(g.momentumAsOf) || shiftKey(msToKey(created), -1)
+    };
+  }
+  function normActivity(a) {
+    if (!a || !a.goalId || !a.sourceId) return null;
+    if (typeof a.completedAt !== "number") return null;
+    return {
+      id: a.id || uid(),
+      goalId: String(a.goalId),
+      sourceType: a.sourceType === "habit" ? "habit" : "task",
+      sourceId: String(a.sourceId),
+      title: a.title ? String(a.title) : "",
+      completedAt: a.completedAt,
+      points: typeof a.points === "number" && a.points >= 0 ? Math.floor(a.points) : 0,
+      /* What the row was worth before the day's ladder and ceiling were
+         applied. Without it a reload would recalculate an undo from the
+         already-capped value and quietly shrink the rest of the day. */
+      base: typeof a.base === "number" && a.base >= 0 ? Math.floor(a.base)
+        : (typeof a.points === "number" ? Math.floor(a.points) : 0)
     };
   }
   function normGoals(v) {
     var out = blankGoals();
     if (!v || typeof v !== "object") return out;
     out.goals = (Array.isArray(v.goals) ? v.goals : []).map(normGoal).filter(Boolean);
+    out.activity = (Array.isArray(v.activity) ? v.activity : [])
+      .map(normActivity).filter(Boolean)
+      .sort(function (a, b) {
+        if (a.completedAt !== b.completedAt) return a.completedAt - b.completedAt;
+        return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+      });
     return out;
   }
-  function makeGoal(title, opts) {
+  function makeGoal(name, opts) {
     opts = opts || {};
+    var now = typeof opts.now === "number" ? opts.now : Date.now();
     return normGoal({
-      id: opts.id, title: title, timeframe: opts.timeframe,
-      targetDate: opts.targetDate, linkedTasks: opts.linkedTasks,
-      linkedHabits: opts.linkedHabits, status: opts.status,
-      createdAt: typeof opts.now === "number" ? opts.now : Date.now()
+      id: opts.id, name: name, description: opts.description,
+      active: opts.active, createdAt: now,
+      momentum: 0, momentumAsOf: shiftKey(msToKey(now), -1)
     });
   }
 
-  /* Every linked thing counts once, whether it is a single task or a habit
-     wanting thirty sessions — "weighted equally as items, not by count of
-     underlying instances". A goal with nothing linked sits at zero rather
-     than dividing by none. */
-  function goalItems(goal, items, done, habits) {
-    var byId = {};
-    (items || []).forEach(function (t) { byId[t.id] = t; });
-    var hById = {};
-    ((habits && habits.habits) || []).forEach(function (hb) { hById[hb.id] = hb; });
-    var out = [];
-    goal.linkedTasks.forEach(function (link) {
-      var live = byId[link.id];
-      var at = live ? live.completedAt : taskDoneAt(done, link.id);
-      out.push({
-        kind: "task", id: link.id,
-        title: (live && live.title) || link.title || "A task that is no longer here",
-        gone: !live,
-        doneAt: at || null,
-        progress: at ? 1 : 0
-      });
-    });
-    goal.linkedHabits.forEach(function (link) {
-      var n = habitCountSince(done, link.habitId, goal.createdAt);
-      var hb = hById[link.habitId];
-      out.push({
-        kind: "habit", id: link.habitId,
-        title: (hb && hb.name) || "A habit that is no longer here",
-        gone: !hb,
-        count: n, target: link.targetCount,
-        progress: Math.min(1, n / link.targetCount)
-      });
-    });
-    return out;
+  /* ---------- points ----------
+     A heavy day is rewarded, but the ladder stops it banking a week's credit
+     at once: three at full, three at half, the rest at a quarter, and nothing
+     past the day's ceiling. */
+  function basePoints(t) {
+    if (isHabitTask(t)) return MOMENTUM.habitPoints;
+    var p = MOMENTUM.taskPoints[t.importance];
+    return typeof p === "number" ? p : MOMENTUM.taskPoints.should;
   }
-  function goalProgress(goal, items, done, habits) {
-    var list = goalItems(goal, items, done, habits);
-    if (!list.length) return 0;
-    var sum = list.reduce(function (n, i) { return n + i.progress; }, 0);
-    return sum / list.length;
+  function tierValue(base, index) {
+    if (index < MOMENTUM.fullFor) return base;
+    if (index < MOMENTUM.fullFor + MOMENTUM.halfFor) return Math.floor(base / 2);
+    return Math.max(MOMENTUM.quarterMin, Math.floor(base / 4));
   }
-  function goalPercent(goal, items, done, habits) {
-    return Math.round(goalProgress(goal, items, done, habits) * 100);
-  }
-  /* Done means the user said so, or everything linked is finished. A goal
-     with nothing linked is never automatically done. */
-  function goalIsDone(goal, items, done, habits) {
-    if (goal.status === "done") return true;
-    var list = goalItems(goal, items, done, habits);
-    return list.length > 0 && list.every(function (i) { return i.progress >= 1; });
-  }
-  /* Open goals oldest first so the list holds still; finished ones after. */
-  function sortGoals(list) {
-    return list.slice().sort(function (a, b) {
-      if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+  /* Re-walks one goal's day in completion order and reassigns every row's
+     points. Called after an undo, because removing the second completion of a
+     day changes what the fifth was worth. */
+  function repointDay(activity, goalId, day) {
+    var sameDay = activity.filter(function (a) {
+      return a.goalId === goalId && msToKey(a.completedAt) === day;
+    }).sort(function (a, b) {
+      if (a.completedAt !== b.completedAt) return a.completedAt - b.completedAt;
       return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
     });
+    var byId = {}, spent = 0;
+    sameDay.forEach(function (a, i) {
+      var want = tierValue(a.base || a.points || 0, i);
+      byId[a.id] = Math.max(0, Math.min(want, MOMENTUM.dayCeiling - spent));
+      spent += byId[a.id];
+    });
+    return activity.map(function (a) {
+      return byId[a.id] === undefined ? a
+        : { id: a.id, goalId: a.goalId, sourceType: a.sourceType, sourceId: a.sourceId,
+            title: a.title, completedAt: a.completedAt, points: byId[a.id], base: a.base };
+    });
   }
-  function splitGoals(state, items, done, habits) {
-    var all = sortGoals(normGoals(state).goals.filter(function (g) {
-      return g.status !== "archived";
-    }));
+  /* A completion of something carrying a goalId. `base` rides along so an undo
+     elsewhere in the day can recalculate this row's share honestly. */
+  function addActivity(state, goal, task, nowMs) {
+    var st = normGoals(state);
+    if (!goal || !goal.active) return st;
+    var at = typeof nowMs === "number" ? nowMs : (task.completedAt || Date.now());
+    if (at < goal.createdAt) return st;    /* older than the goal: not its to claim */
+    var row = {
+      id: uid(), goalId: goal.id,
+      sourceType: isHabitTask(task) ? "habit" : "task",
+      sourceId: isHabitTask(task) ? habitInstanceKey(task) : task.id,
+      title: String(task.title || ""),
+      completedAt: at, points: 0, base: basePoints(task)
+    };
+    var list = repointDay(st.activity.concat([row]), goal.id, msToKey(at));
+    return { goals: st.goals, activity: list };
+  }
+  function habitInstanceKey(t) { return t.habitId + ":" + t.slotId + ":" + t.genOn; }
+  /* Undo: the row goes and the rest of its day is recalculated. No orphans. */
+  function removeActivity(state, task) {
+    var st = normGoals(state);
+    var key = isHabitTask(task) ? habitInstanceKey(task) : task.id;
+    var hit = st.activity.filter(function (a) { return a.sourceId === key; });
+    if (!hit.length) return st;
+    var list = st.activity.filter(function (a) { return a.sourceId !== key; });
+    hit.forEach(function (a) {
+      list = repointDay(list, a.goalId, msToKey(a.completedAt));
+    });
+    return { goals: st.goals, activity: list };
+  }
+
+  /* ---------- momentum ---------- */
+  function pointsOnDay(activity, goalId, day) {
+    return activity.reduce(function (n, a) {
+      return a.goalId === goalId && msToKey(a.completedAt) === day ? n + a.points : n;
+    }, 0);
+  }
+  function lastActiveDayOnOrBefore(activity, goalId, day) {
+    var best = null;
+    activity.forEach(function (a) {
+      if (a.goalId !== goalId || a.points <= 0) return;
+      var k = msToKey(a.completedAt);
+      if (k <= day && (!best || k > best)) best = k;
+    });
+    return best;
+  }
+  /* Rolls a goal's value forward one day at a time. A quiet run is measured
+     from the last day that actually earned something, so no running tally has
+     to be carried in storage — the log already knows. */
+  function rollMomentum(value, goal, activity, from, to, today) {
+    var v = value, day = from;
+    var guard = 0;
+    while (day <= to && guard++ < 4000) {
+      var pts = pointsOnDay(activity, goal.id, day);
+      if (pts > 0) {
+        v = Math.min(MOMENTUM.max, v + pts);
+      } else if (day !== today) {
+        /* Only a closed day can be a quiet day. Today is still in progress, so
+           it never decays — the cooling shows up the following morning rather
+           than the moment midnight passes. Keyed on the real today, not on the
+           end of this roll, or settling to yesterday would skip yesterday. */
+        var last = lastActiveDayOnOrBefore(activity, goal.id, day) || msToKey(goal.createdAt);
+        var quiet = daysBetween(last, day);
+        if (quiet > MOMENTUM.graceDays) v = Math.max(0, v - MOMENTUM.decayPerDay);
+      }
+      if (day === to) break;
+      day = shiftKey(day, 1);
+    }
+    return Math.max(0, Math.min(MOMENTUM.max, v));
+  }
+  /* What the goal reads right now: the cached checkpoint rolled forward to
+     today. A paused goal holds whatever it had — it neither earns nor cools. */
+  function goalMomentum(goal, activity, today) {
+    if (!goal) return 0;
+    if (!goal.active) return goal.momentum;
+    var from = validDate(goal.momentumAsOf) || shiftKey(msToKey(goal.createdAt), -1);
+    if (from >= today) return goal.momentum;
+    return rollMomentum(goal.momentum, goal, activity || [], shiftKey(from, 1), today, today);
+  }
+  /* Settle the cache to the end of yesterday, so the work each day is
+     proportional to days elapsed rather than to the whole history. Today is
+     deliberately left unsettled: it is still earning. */
+  function settleGoal(goal, activity, today) {
+    if (!goal || !goal.active) return goal;
+    var yesterday = shiftKey(today, -1);
+    var from = validDate(goal.momentumAsOf) || shiftKey(msToKey(goal.createdAt), -1);
+    if (from >= yesterday) return goal;
+    var v = rollMomentum(goal.momentum, goal, activity || [], shiftKey(from, 1), yesterday, today);
     return {
-      active: all.filter(function (g) { return !goalIsDone(g, items, done, habits); }),
-      done: all.filter(function (g) { return goalIsDone(g, items, done, habits); })
+      id: goal.id, name: goal.name, description: goal.description,
+      active: goal.active, createdAt: goal.createdAt,
+      momentum: v, momentumAsOf: yesterday
     };
   }
-  /* "3 of 12" / "Gym 8 of 30" — factual, never a verdict on the pace. */
-  function goalItemLabel(item) {
-    if (item.kind === "habit") return item.count + " of " + item.target;
-    return item.doneAt ? "Done" : "Not yet";
+  function settleGoals(state, today) {
+    var st = normGoals(state);
+    var changed = false;
+    var goals = st.goals.map(function (g) {
+      var next = settleGoal(g, st.activity, today);
+      if (next !== g) changed = true;
+      return next;
+    });
+    return changed ? { goals: goals, activity: st.activity } : st;
   }
-  function targetDateLabel(goal, today) {
-    if (!goal.targetDate) return "";
-    var n = daysBetween(today, goal.targetDate);
-    var d = keyToDate(goal.targetDate);
-    var when = d.getDate() + " " + MO3[d.getMonth()];
-    if (d.getFullYear() !== keyToDate(today).getFullYear()) when += " " + d.getFullYear();
-    if (n === 0) return "Target today";
-    if (n === 1) return "Target tomorrow";
-    if (n < 0) return "Target was " + when;
-    return "Target " + when;
+
+  function momentumBand(n) {
+    var out = BANDS[0];
+    BANDS.forEach(function (b) { if (n >= b.from) out = b; });
+    return out;
+  }
+  /* One plain line. It says what is happening and nothing about what it means
+     — a cooling goal is cooling, never neglected, slipping or broken. */
+  function momentumLine(goal, activity, today) {
+    if (!goal.active) return "Paused";
+    var band = momentumBand(goalMomentum(goal, activity, today));
+    var last = lastActiveDayOnOrBefore(activity || [], goal.id, today);
+    if (!last) return band.label + " — nothing logged yet";
+    if (last === today) {
+      var run = 1, day = today;
+      while (lastActiveDayOnOrBefore(activity, goal.id, shiftKey(day, -1)) === shiftKey(day, -1)) {
+        day = shiftKey(day, -1); run += 1;
+        if (run > 400) break;
+      }
+      return band.label + " — " + (run === 1 ? "active today" : run + " days running");
+    }
+    return band.label + " — last activity " + sinceLabel(last, today);
+  }
+
+  /* The record: everything done toward a goal, newest first, grouped by day.
+     Paged, because it is the part that grows without limit. */
+  function goalRecord(activity, goalId, offset, limit) {
+    var rows = (activity || []).filter(function (a) { return a.goalId === goalId; })
+      .slice().sort(function (a, b) {
+        if (a.completedAt !== b.completedAt) return b.completedAt - a.completedAt;
+        return a.id < b.id ? 1 : -1;
+      });
+    var page = rows.slice(offset || 0, (offset || 0) + (limit || 30));
+    var days = [], byDay = {};
+    page.forEach(function (a) {
+      var k = msToKey(a.completedAt);
+      if (!byDay[k]) { byDay[k] = { day: k, items: [] }; days.push(byDay[k]); }
+      byDay[k].items.push(a);
+    });
+    return { days: days, total: rows.length, more: rows.length > (offset || 0) + page.length };
+  }
+  /* Liveliest first, so the thread being kept alight is the one at the top. */
+  function goalsByMomentum(state, today) {
+    var st = normGoals(state);
+    var live = st.goals.filter(function (g) { return g.active; }).slice().sort(function (a, b) {
+      var ma = goalMomentum(a, st.activity, today), mb = goalMomentum(b, st.activity, today);
+      if (ma !== mb) return mb - ma;
+      if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+      return a.id < b.id ? -1 : 1;
+    });
+    var paused = st.goals.filter(function (g) { return !g.active; }).slice().sort(function (a, b) {
+      if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+      return a.id < b.id ? -1 : 1;
+    });
+    return { active: live, paused: paused };
   }
 
   /* ---------- calendar export ----------
@@ -1485,14 +1545,14 @@
     cartsNewestFirst: cartsNewestFirst,
     shopsByName: shopsByName, cartPreview: cartPreview, cartOpenCount: cartOpenCount,
     sweepCarts: sweepCarts,
-    blankDone: blankDone, normDone: normDone, habitDoneKey: habitDoneKey,
-    recordCompletion: recordCompletion, taskDoneAt: taskDoneAt,
-    habitCountSince: habitCountSince, pruneDone: pruneDone,
-    TIMEFRAMES: TIMEFRAMES, GOAL_STATUS: GOAL_STATUS,
+    MOMENTUM: MOMENTUM, BANDS: BANDS,
     blankGoals: blankGoals, normGoals: normGoals, normGoal: normGoal, makeGoal: makeGoal,
-    goalItems: goalItems, goalProgress: goalProgress, goalPercent: goalPercent,
-    goalIsDone: goalIsDone, splitGoals: splitGoals, sortGoals: sortGoals,
-    goalItemLabel: goalItemLabel, targetDateLabel: targetDateLabel,
+    basePoints: basePoints, tierValue: tierValue, repointDay: repointDay,
+    addActivity: addActivity, removeActivity: removeActivity,
+    habitInstanceKey: habitInstanceKey, pointsOnDay: pointsOnDay,
+    goalMomentum: goalMomentum, settleGoal: settleGoal, settleGoals: settleGoals,
+    momentumBand: momentumBand, momentumLine: momentumLine,
+    goalRecord: goalRecord, goalsByMomentum: goalsByMomentum,
     RECURRENCE: RECURRENCE, blankHabits: blankHabits, normHabits: normHabits,
     normHabit: normHabit, normSlot: normSlot, makeHabit: makeHabit, makeSlot: makeSlot,
     slotMatches: slotMatches, habitSlotsOn: habitSlotsOn,
