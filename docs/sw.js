@@ -1,6 +1,6 @@
 /* Quiet Desk service worker — precache everything, serve cache-first.
    Bump CACHE when any asset below changes. */
-var CACHE = "quiet-desk-v9";
+var CACHE = "quiet-desk-v10";
 
 var ASSETS = [
   "./",
@@ -34,9 +34,29 @@ self.addEventListener("activate", function (e) {
   );
 });
 
+/* Pages serves this app from a subdirectory, so the worker's scope covers
+   everything beside it too. These are the only paths Quiet Desk owns; anything
+   else under the scope belongs to another app and is left alone. */
+var OWN_DIRS = ["vendor/", "assets/", "icons/"];
+
+function ours(url) {
+  var scope = new URL(self.registration.scope);
+  if (url.origin !== scope.origin) return false;
+  if (url.pathname.indexOf(scope.pathname) !== 0) return false;
+  var rest = url.pathname.slice(scope.pathname.length);
+  if (rest.indexOf("/") === -1) return true; // a file at the app root
+  for (var i = 0; i < OWN_DIRS.length; i++) {
+    if (rest.indexOf(OWN_DIRS[i]) === 0) return true;
+  }
+  return false;
+}
+
 self.addEventListener("fetch", function (e) {
   var req = e.request;
   if (req.method !== "GET") return;
+
+  var url = new URL(req.url);
+  if (!ours(url)) return; // another app's page: straight to the network
 
   // Navigations: cached shell first so a cold, offline launch still works.
   if (req.mode === "navigate") {

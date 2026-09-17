@@ -17,6 +17,22 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
+## Publishing it
+
+```
+npm run build:pages     # -> ../docs/last-card/, which GitHub Pages serves
+npm run build:artifact  # -> dist-artifact/last-card.html, one self-contained file
+```
+
+`build:pages` output is committed, because Pages serves straight from `docs/`
+on `main`. Never hand-edit `docs/last-card/` — rebuild it.
+
+Quiet Desk sits at the root of the same Pages site and registers a service
+worker whose scope covers the whole thing, this app included. It is scoped to
+only claim its own paths; `test/sw.test.js` and `test/pages.test.mjs` in the
+repository root guard that, the latter by installing the real worker and then
+walking into this app.
+
 ## Testing
 
 ```
@@ -25,6 +41,9 @@ npm run test:ui      # builds, then taps every control in a real browser
 npm run test:all     # both
 npm run typecheck
 ```
+
+From the repository root, `node test/sw.test.js` and `node test/pages.test.mjs`
+cover the two apps sharing one service worker scope.
 
 `npm run test:ui` needs the Chromium at
 `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`; change `executablePath`

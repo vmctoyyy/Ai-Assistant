@@ -11,7 +11,9 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "test:ui": "vite build && node test/ui.smoke.mjs",
-    "test:all": "vitest run && npm run test:ui"
+    "test:all": "vitest run && npm run test:ui",
+    "build:pages": "tsc --noEmit && vite build --outDir ../docs/last-card --emptyOutDir",
+    "build:artifact": "vite build && node tools/bundle-artifact.mjs"
   },
   "dependencies": {
     "react": "^19.2.0",
