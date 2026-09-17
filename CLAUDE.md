@@ -55,9 +55,15 @@ worker not applying itself, which is fixed under Non-negotiables below.)
 
 ## Non-negotiables
 
-- **No network at runtime.** No CDN scripts, no web fonts, no API calls.
-  React and Newsreader are vendored in `docs/vendor` and `docs/assets` and
-  served same-origin. The app must cold-start with no signal.
+- **No network at runtime, with one named exception.** No CDN scripts, no web
+  fonts, no API calls for anything the app does. React and Newsreader are
+  vendored in `docs/vendor` and `docs/assets` and served same-origin. The app
+  must cold-start and work completely with no signal.
+  The exception is the **morning nudge** (`docs/nudge-client.js`), which talks
+  to the Worker in `/push`. Every one of those calls is optional, deferred to
+  an idle callback, and swallows its own failure: with the server down, not
+  deployed, or no signal at all, the app behaves exactly as it always has.
+  There are assertions for that. Nothing else may take a dependency on it.
 - **Bump `CACHE` in `docs/sw.js`** whenever any file listed in its `ASSETS`
   changes. Without it, installed copies keep serving the old version from
   cache and the user sees nothing change.
@@ -304,9 +310,34 @@ worker not applying itself, which is fixed under Non-negotiables below.)
   being edited or deleted because each row snapshots the title at completion
   time, and it pages (`goalRecord(activity, goalId, offset, limit)`) because
   it is the part that grows without limit.
-- **Reminders are calendar events, not push.** iOS Web Push needs a server
-  signing with VAPID keys; this app has no server, and Notification Triggers
-  is not in Safari. `buildICS` writes a `VALARM` at `-PT30M`.
+- **Per-task reminders are calendar events, not push.** Notification Triggers
+  is not in Safari, and a push reminder for a specific task would mean the
+  task's text and time living on a server. `buildICS` writes a `VALARM` at
+  `-PT30M` and that stays the answer.
+- **The morning nudge is the one push, and it knows nothing.** The server in
+  `/push` holds a subscription, a time, some days, an IANA timezone and two
+  dates — never a task, habit, goal, cart or quote, and it has no endpoint
+  that could accept one. A UI assertion checks that nothing leaving the device
+  carries app data. The notification body is a fixed calm line chosen by date:
+  no counts, because the server cannot see anything to count.
+- **It is skipped on a day already begun.** If the app has been opened, the
+  nudge has no job to do. That is the point of the `/opened` ping.
+- **The cron interval and `WINDOW_MINUTES` must stay equal** (15). Cron less
+  often and chosen minutes fall between runs; window wider and a late run
+  fires hours after the time asked for. There is an assertion that exactly one
+  run in a whole day can fire.
+- **`docs/push-config.js` ships blank and the feature stays dormant.** Until
+  it is filled in the settings panel explains itself and the toggle is out of
+  reach — the app is never left pointing at a server that is not there.
+- **The shared secret in that file is public and is not access control.** The
+  repo and the file are both public. It is a speed bump; what it exposes is
+  bounded because there is one record holding only scheduling. See
+  `push/README.md` before treating it as security.
+- **`push/webpush.js` is WebCrypto, not Node crypto**, because Node's
+  `web-push` does not run on Workers. Its encryption is verified in
+  `test/push.test.js` by decrypting with `http_ece` — an independent
+  implementation — rather than against itself. Delivery to a real push service
+  is *not* tested: that needs a deployed Worker and a device.
 
 The Tasks footer rests as a three-button **hot bar** — Add task, Habits, Brain
 dump — and becomes the quick-add composer when the first is tapped. Opening it

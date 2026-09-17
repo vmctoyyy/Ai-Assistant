@@ -1684,6 +1684,47 @@
   /* Small counts read better as words in a sentence. */
   function QD_word(n) { return n <= 10 ? numberWord(n) : String(n); }
 
+  /* ---------- the morning nudge (device side) ----------
+     What the app remembers about the nudge. The decision to send lives on the
+     server; this is only what the settings panel shows and what gets posted. */
+  function blankNudge() {
+    var tz = "UTC";
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch (e) {}
+    return {
+      enabled: false, time: "07:00", days: [0, 1, 2, 3, 4, 5, 6],
+      timezone: tz, endpoint: null, lastPingedOn: null
+    };
+  }
+  function normNudge(v) {
+    var out = blankNudge();
+    if (!v || typeof v !== "object") return out;
+    out.enabled = v.enabled === true;
+    out.time = validTime(v.time) || out.time;
+    var seen = {}, days = [];
+    (Array.isArray(v.days) ? v.days : []).forEach(function (d) {
+      var n = typeof d === "number" ? d : parseInt(d, 10);
+      if (!isFinite(n) || n < 0 || n > 6 || seen[n]) return;
+      seen[n] = true; days.push(n);
+    });
+    out.days = days.sort(function (a, b) { return a - b; });
+    if (typeof v.timezone === "string" && v.timezone) out.timezone = v.timezone;
+    out.endpoint = typeof v.endpoint === "string" ? v.endpoint : null;
+    out.lastPingedOn = validDate(v.lastPingedOn);
+    return out;
+  }
+  /* "Weekdays only" and "Every day", so the common two are one tap. */
+  var WEEKDAYS = [1, 2, 3, 4, 5];
+  var EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
+  function sameDays(a, b) {
+    return a.length === b.length && a.every(function (d, i) { return d === b[i]; });
+  }
+  /* A nudge with no days chosen would be silently dead, so it is not allowed
+     to be on with an empty week — the panel says so rather than lying. */
+  function nudgeReady(n) {
+    return !!(n && n.enabled && n.days.length && validTime(n.time));
+  }
+
+
   /* ---------- calendar export ----------
      A static site has no push server, so a reminder is a real calendar event
      with a 30-minute alarm. Floating local time: 12:30 means 12:30 wherever
@@ -1772,6 +1813,8 @@
     goalMomentum: goalMomentum, settleGoal: settleGoal, settleGoals: settleGoals,
     momentumBand: momentumBand, momentumLine: momentumLine,
     goalRecord: goalRecord, goalsByMomentum: goalsByMomentum,
+    blankNudge: blankNudge, normNudge: normNudge, nudgeReady: nudgeReady,
+    WEEKDAYS: WEEKDAYS, EVERY_DAY: EVERY_DAY, sameDays: sameDays,
     goalStreak: goalStreak, streakLabel: streakLabel, activeDaysDesc: activeDaysDesc,
     whenLabel: whenLabel, recentActivity: recentActivity, activityOn: activityOn,
     goalBoosts: goalBoosts,

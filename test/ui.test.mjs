@@ -1295,6 +1295,191 @@ console.log('\n##### goals: momentum #####');
   await ctx.close();
 }
 
+
+/* ---- the morning nudge ----
+   Each scenario gets its own context: the service worker caches
+   push-config.js on first load, so a route added afterwards would never be
+   reached — which is the app working as designed, not a test problem. */
+console.log('\n##### morning nudge #####');
+{
+  const CONFIG = "window.QD_PUSH={url:'/nudge-stub',publicKey:'BCB774tGY2jmXIfn58_RWDM6RERxcWL2FiweoGa_S3mdrkUpSOiDpfLNqb8Ps_5ygRtFmxelM5hBo5JxxCsZuxc',secret:'test-secret'};";
+  const errs = [];
+
+  async function scenario(opts) {
+    /* A real zone, so what the app reports is an IANA name rather than the
+       container's UTC — and so daylight saving is actually in play. */
+    const ctx = await b.newContext({ ...devices['iPhone 13'], hasTouch: true,
+      timezoneId: 'Pacific/Auckland' });
+    if (opts.notifications) await ctx.grantPermissions(['notifications'], { origin: BASE });
+    const pg = await ctx.newPage();
+    pg.on('pageerror', e => errs.push('PAGEERROR ' + e));
+    pg.on('console', m => { if (m.type() === 'error') errs.push(m.text().slice(0, 160)); });
+    const calls = [];
+    if (opts.configured) {
+      await pg.route('**/push-config.js', route => route.fulfill({
+        status: 200, contentType: 'application/javascript', body: CONFIG }));
+    }
+    if (opts.serverDown) {
+      await pg.route('**/nudge-stub/**', route => route.abort('failed'));
+    } else {
+      await pg.route('**/nudge-stub/**', async (route) => {
+        const req = route.request();
+        calls.push({ url: req.url(), body: req.postDataJSON ? req.postDataJSON() : null });
+        await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+      });
+    }
+    if (opts.installed) {
+      await pg.addInitScript(() => {
+        Object.defineProperty(navigator, 'standalone', { get: () => true, configurable: true });
+        /* Chromium cannot register with a real push service here, so the
+           browser's own subscribe call is stubbed. Everything downstream of
+           it — what we send, what we store, what the panel shows — is the
+           app's own code and is exercised for real. */
+        const fake = {
+          endpoint: 'https://push.example/fake-endpoint',
+          toJSON() { return { endpoint: this.endpoint,
+            keys: { p256dh: 'BPuTest', auth: 'authTest' } }; },
+          unsubscribe() { return Promise.resolve(true); }
+        };
+        let current = null;
+        PushManager.prototype.subscribe = function () { current = fake; return Promise.resolve(fake); };
+        PushManager.prototype.getSubscription = function () { return Promise.resolve(current); };
+      });
+    }
+    await pg.goto(`${BASE}${opts.path || '/index.html'}`);
+    if (!opts.path) { await pg.waitForSelector('.home', { timeout: 10000 }); await settled(pg); }
+    return { ctx, pg, calls };
+  }
+  async function openSettings(pg) {
+    await pg.locator('button.tile[aria-label="Tasks"]').tap();
+    await pg.waitForTimeout(500);
+    if (await pg.locator('.brief').count()) {
+      await pg.getByRole('button', { name: 'Go to the full list' }).tap();
+      await pg.waitForTimeout(300);
+    }
+    await pg.locator('.screen-body').evaluate(el => el.scrollTop = el.scrollHeight);
+    await pg.waitForTimeout(250);
+    await pg.getByRole('button', { name: 'Settings' }).tap();
+    await pg.waitForSelector('.sheet', { timeout: 5000 });
+    await settled(pg);
+  }
+
+  /* 1. Out of the box: no Worker deployed. */
+  let s1 = await scenario({});
+  await openSettings(s1.pg);
+  check('settings is reachable from the Tasks footer',
+    (await s1.pg.locator('.sheet h2').innerText()) === 'Settings');
+  check('unconfigured, it says so rather than offering a dead toggle',
+    /needs its server set up/i.test(await s1.pg.locator('.sheet').innerText()));
+  check('and the toggle is not offerable',
+    await s1.pg.locator('.sheet .togglebtn').first().isDisabled());
+  check('no time or day controls until it is on',
+    await s1.pg.locator('.sheet input[aria-label="Nudge time"]').count() === 0 &&
+    await s1.pg.locator('.sheet .daypick').count() === 0);
+  check('the panel states plainly what leaves the device',
+    /never leave this phone/i.test(await s1.pg.locator('.sheet').innerText()));
+  check('and nothing in it is alarming',
+    !/!|warning|error|fail/i.test(await s1.pg.locator('.sheet').innerText()));
+  await s1.ctx.close();
+
+  /* 2. Configured, but an iPhone that has not been added to the Home Screen. */
+  let s2 = await scenario({ configured: true });
+  await openSettings(s2.pg);
+  check('on iOS, not installed, it explains instead',
+    /Add Life Today to your Home Screen/i.test(await s2.pg.locator('.sheet').innerText()));
+  check('and the toggle stays out of reach',
+    await s2.pg.locator('.sheet .togglebtn').first().isDisabled());
+  await s2.ctx.close();
+
+  /* 3. Installed, permission granted, Worker reachable. */
+  let s3 = await scenario({ configured: true, installed: true, notifications: true });
+  const pg = s3.pg, calls = s3.calls;
+  await openSettings(pg);
+  check('once installed, the toggle becomes available',
+    !(await pg.locator('.sheet .togglebtn').first().isDisabled()));
+  check('and neither note is shown any more',
+    !/needs its server set up|Home Screen/i.test(await pg.locator('.sheet').innerText()));
+
+  await pg.locator('.sheet .togglebtn').first().tap();
+  await pg.waitForTimeout(1000);
+  const subCall = calls.find(c => c.url.includes('/subscribe'));
+  check('turning it on subscribes with the schedule', !!subCall);
+  check('and sends only scheduling, never app data', !!subCall &&
+    Object.keys(subCall.body).sort().join() === 'days,enabled,subscription,time,timezone',
+    subCall && Object.keys(subCall.body).sort().join());
+  check('with the device\'s own IANA zone, not an offset', !!subCall &&
+    subCall.body.timezone === await pg.evaluate(() =>
+      Intl.DateTimeFormat().resolvedOptions().timeZone) &&
+    !/^[+-]?\d/.test(subCall.body.timezone),
+    subCall && subCall.body.timezone);
+  check('the time and day controls appear once it is on',
+    await pg.locator('.sheet input[aria-label="Nudge time"]').count() === 1 &&
+    await pg.locator('.sheet .daypick .day').count() === 7);
+  check('every day is chosen by default',
+    await pg.locator('.sheet .daypick .day.on').count() === 7);
+
+  await pg.getByRole('button', { name: 'Weekdays only' }).tap();
+  await pg.waitForTimeout(1200);
+  check('weekdays only is one tap',
+    await pg.locator('.sheet .daypick .day.on').count() === 5);
+  const weekdayCall = calls.filter(c => c.url.includes('/subscribe')).pop();
+  check('and the change reaches the server',
+    !!weekdayCall && weekdayCall.body.days.join() === '1,2,3,4,5',
+    weekdayCall && String(weekdayCall.body.days));
+  await pg.getByRole('button', { name: 'Send a test' }).tap();
+  await pg.waitForTimeout(700);
+  check('a test can be sent once it is on', calls.some(c => c.url.includes('/test')));
+
+  const stored = await pg.evaluate(() => new Promise(r => {
+    const q = indexedDB.open('quietdesk', 1);
+    q.onsuccess = () => { const rq = q.result.transaction('kv','readonly').objectStore('kv').get('nudge');
+      rq.onsuccess = () => r(rq.result || null); };
+  }));
+  check('the settings are kept on the device too, so the panel is right offline',
+    !!stored && stored.enabled === true && stored.days.join() === '1,2,3,4,5',
+    JSON.stringify(stored));
+  const openedCall = calls.find(c => c.url.includes('/opened'));
+  check('opening the app tells the server the day has started', !!openedCall);
+  check('and sends a date and nothing else', !!openedCall &&
+    Object.keys(openedCall.body).join() === 'date' &&
+    /^\d{4}-\d{2}-\d{2}$/.test(openedCall.body.date),
+    openedCall && JSON.stringify(openedCall.body));
+  check('nothing that ever left carried app data',
+    calls.every(c => !/task|habit|goal|cart|quote|title/i.test(JSON.stringify(c.body || {}))));
+  await s3.ctx.close();
+
+  console.log('-- the nudge must never be able to break the app --');
+  let s4 = await scenario({ configured: true, installed: true, notifications: true, serverDown: true });
+  check('with the server unreachable the app still starts',
+    await s4.pg.locator('.home-grid .tile').count() === 6);
+  await s4.pg.locator('button.tile[aria-label="Tasks"]').tap();
+  await s4.pg.waitForTimeout(700);
+  if (await s4.pg.locator('.brief').count()) {
+    await s4.pg.getByRole('button', { name: 'Go to the full list' }).tap();
+    await s4.pg.waitForTimeout(300);
+  }
+  check('and Tasks works as it always has',
+    await s4.pg.locator('.hotbar .hot').count() === 3);
+  check('with nothing shouted about the failure',
+    !/error|failed|could not/i.test(await s4.pg.locator('.screen-body').innerText()));
+  await s4.ctx.close();
+
+  console.log('-- arriving from the notification --');
+  let s5 = await scenario({ path: '/index.html?open=brief' });
+  await s5.pg.waitForSelector('.brief', { timeout: 10000 });
+  check('?open=brief opens the morning brief straight away',
+    await s5.pg.locator('.brief').count() === 1);
+  check('and the query is cleared so a refresh is ordinary',
+    !(await s5.pg.evaluate(() => window.location.search)).includes('open=brief'),
+    await s5.pg.evaluate(() => window.location.search));
+  await s5.pg.reload();
+  await s5.pg.waitForTimeout(900);
+  check('a reload does not re-trigger it',
+    !(await s5.pg.evaluate(() => window.location.search)).includes('open=brief'));
+  await s5.ctx.close();
+  console.log('  errors:', errs.length ? errs : 'none');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 await b.close();
 stop();
