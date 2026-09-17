@@ -1,12 +1,14 @@
 /* Quiet Desk service worker — precache everything, serve cache-first.
    Bump CACHE when any asset below changes. */
-var CACHE = "quiet-desk-v26";
+var CACHE = "quiet-desk-v27";
 
 var ASSETS = [
   "./",
   "./index.html",
   "./app.js",
   "./logic.js",
+  "./push-config.js",
+  "./nudge-client.js",
   "./manifest.webmanifest",
   "./vendor/react.js",
   "./vendor/react-dom.js",
@@ -65,5 +67,45 @@ self.addEventListener("fetch", function (e) {
         return res;
       });
     })
+  );
+});
+
+/* ---- the morning nudge ----
+   The payload is written by our own Worker, but it arrives over the network,
+   so it is treated as untrusted: only known fields are read, and anything
+   missing falls back to something safe rather than rendering undefined. */
+self.addEventListener("push", function (e) {
+  var data = {};
+  try { data = e.data ? e.data.json() : {}; } catch (err) { data = {}; }
+  var title = typeof data.title === "string" ? data.title : "Life Today";
+  var body = typeof data.body === "string" ? data.body : "Your day is ready.";
+  var url = typeof data.url === "string" && data.url.charAt(0) === "/"
+    ? data.url : "/?open=brief";
+  e.waitUntil(self.registration.showNotification(title, {
+    body: body,
+    tag: typeof data.tag === "string" ? data.tag : "morning-nudge",
+    renotify: false,
+    icon: "./icons/icon-192.png",
+    badge: "./icons/icon-192.png",
+    data: { url: url }
+  }));
+});
+
+/* Focus the app if it is already open rather than stacking another window. */
+self.addEventListener("notificationclick", function (e) {
+  e.notification.close();
+  var want = (e.notification.data && e.notification.data.url) || "/?open=brief";
+  var target = new URL(want, self.registration.scope).href;
+  e.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true })
+      .then(function (list) {
+        for (var i = 0; i < list.length; i++) {
+          if (list[i].url.indexOf(self.registration.scope) === 0 && "focus" in list[i]) {
+            if ("navigate" in list[i]) { try { list[i].navigate(target); } catch (err) {} }
+            return list[i].focus();
+          }
+        }
+        return self.clients.openWindow(target);
+      })
   );
 });

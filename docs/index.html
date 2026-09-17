@@ -318,6 +318,11 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
   .band-alight .flame{animation:none}
 }
 
+/* A control that cannot apply here says so by going quiet, not by vanishing —
+   the note underneath explains why. */
+.togglebtn.off-limits{opacity:.45}
+.togglebtn.off-limits .tick{border-color:var(--line)}
+
 /* ---- streaks ----
    The one place in the app that works on loss: it counts up, it warns while
    the day runs out, and a missed day takes it back to nothing. Deliberate,
@@ -936,7 +941,9 @@ input,textarea{font-size:16px}   /* keeps iOS from zooming on focus */
 
 <script src="vendor/react.js"></script>
 <script src="vendor/react-dom.js"></script>
+<script src="push-config.js"></script>
 <script src="logic.js"></script>
+<script src="nudge-client.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

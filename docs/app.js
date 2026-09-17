@@ -191,10 +191,13 @@
   }
   function Toggle(props) {
     return button({
-      type: "button", className: "togglebtn", role: "switch",
+      type: "button", className: "togglebtn" + (props.disabled ? " off-limits" : ""),
+      role: "switch",
       "aria-checked": props.on ? "true" : "false",
+      "aria-disabled": props.disabled ? "true" : null,
+      disabled: !!props.disabled,
       onMouseDown: function (e) { e.preventDefault(); },
-      onClick: function () { props.onChange(!props.on); }
+      onClick: function () { if (!props.disabled) props.onChange(!props.on); }
     },
       span({ className: "tick" + (props.on ? " on" : ""), "aria-hidden": "true" }, icon(I_CHECK, 13)),
       span({ className: "ticklabel" }, props.label));
@@ -1496,6 +1499,101 @@
           button({ className: "linkbtn danger", onClick: props.onDelete }, "Delete"))));
   }
 
+  /* ---------- settings: the morning nudge ---------- */
+  var DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  var NUDGE_NOTE = {
+    notset: "The nudge needs its server set up first. See push/README.md in the repo.",
+    unsupported: "Notifications aren't available on this device.",
+    needsinstall: "Add Life Today to your Home Screen from Safari to turn this on.",
+    denied: "Notifications are off for Life Today. You can turn them on in your phone's Settings \u2192 Notifications."
+  };
+
+  function SettingsSheet(props) {
+    var n = props.nudge;
+    var s1 = useState(""), note = s1[0], setNote = s1[1];
+    var s2 = useState(false), busy = s2[0], setBusy = s2[1];
+    var blocked = window.QDNudge ? window.QDNudge.blocker() : "unsupported";
+
+    function toggle() {
+      if (n.enabled) {
+        setBusy(true);
+        props.onDisable().then(function () { setBusy(false); setNote("Turned off."); });
+        return;
+      }
+      if (blocked) return;
+      setBusy(true);
+      props.onEnable().then(function (how) {
+        setBusy(false);
+        setNote(how === "denied"
+          ? "Notifications were declined. You can change that in your phone's Settings."
+          : how === "ok" ? "On. The first one arrives at " + n.time + "." : "Could not reach the nudge server. Nothing has changed.");
+      });
+    }
+    function setDays(days) { props.onChange({ days: days }); }
+    function toggleDay(d) {
+      var on = n.days.indexOf(d) >= 0;
+      setDays(on ? n.days.filter(function (x) { return x !== d; })
+                 : n.days.concat([d]).sort(function (a, b) { return a - b; }));
+    }
+    return h(Sheet, {
+      title: "Settings", onClose: props.onClose,
+      footer: [button({ key: "c", className: "btn", onClick: props.onClose }, "Close")]
+    },
+      div({ className: "sheetfield" },
+        span({ className: "fieldlabel" }, "Morning nudge"),
+        div({ className: "togglerow" },
+          h(Toggle, { on: n.enabled, label: "Send me one", onChange: toggle,
+            disabled: !!blocked || busy }),
+          busy ? span({ className: "fieldnote" }, "\u2026") : null),
+        blocked
+          ? span({ className: "fieldnote" }, NUDGE_NOTE[blocked])
+          : span({ className: "fieldnote" },
+              "One notification, at a time you choose. It is skipped on any day you have already opened the app."),
+        note ? span({ className: "fieldnote" }, note) : null),
+
+      n.enabled ? div({ className: "sheetfield" },
+        span({ className: "fieldlabel" }, "Time"),
+        div({ className: "slot-row" },
+          input({ className: "field stamp", type: "time", value: n.time,
+            "aria-label": "Nudge time",
+            onChange: function (e) { props.onChange({ time: e.target.value }); } }))) : null,
+
+      n.enabled ? div({ className: "sheetfield" },
+        span({ className: "fieldlabel" }, "Days"),
+        div({ className: "daypick", role: "group", "aria-label": "Days" },
+          DAY_PICKS.map(function (d) {
+            var on = n.days.indexOf(d) >= 0;
+            return button({
+              key: d, type: "button", className: "day" + (on ? " on" : ""),
+              "aria-pressed": on ? "true" : "false", "aria-label": WD[d],
+              onMouseDown: function (e) { e.preventDefault(); },
+              onClick: function () { toggleDay(d); }
+            }, DAY_LABELS[d].slice(0, 2));
+          })),
+        div({ className: "slot-row" },
+          button({ className: "linkbtn", type: "button",
+            onClick: function () { setDays(QD.WEEKDAYS.slice()); } }, "Weekdays only"),
+          button({ className: "linkbtn", type: "button",
+            onClick: function () { setDays(QD.EVERY_DAY.slice()); } }, "Every day")),
+        n.days.length === 0
+          ? span({ className: "fieldnote" }, "With no days chosen, nothing will be sent.")
+          : null) : null,
+
+      n.enabled ? div({ className: "sheetfield" },
+        button({ className: "linkbtn", type: "button", onClick: function () {
+          setNote("Sending\u2026");
+          props.onTest().then(function (ok) {
+            setNote(ok ? "Sent. It should arrive in a moment."
+                       : "Could not send a test just now.");
+          });
+        } }, "Send a test")) : null,
+
+      div({ className: "sheetfield" },
+        span({ className: "fieldlabel" }, "This device"),
+        span({ className: "fieldnote" },
+          "Tasks, habits, goals and lists never leave this phone. The nudge server is told only when to send, in which timezone, and whether you have already opened the app today.")));
+  }
+
   /* ---------- app ---------- */
   function App() {
     var s0 = useState(true), loading = s0[0], setLoading = s0[1];
@@ -1535,6 +1633,8 @@
     var s11 = useState("should"), addImp = s11[0], setAddImp = s11[1];
     var s12 = useState(false), dumping = s12[0], setDumping = s12[1];
     var s13 = useState(false), backing = s13[0], setBacking = s13[1];
+    var sS = useState(false), settingsOpen = sS[0], setSettingsOpen = sS[1];
+    var sN = useState(QD.blankNudge), nudge = sN[0], setNudgeRaw = sN[1];
     var s16 = useState(false), armed = s16[0], setArmed = s16[1];
     var s17 = useState(nowMinutes()), clock = s17[0], setClock = s17[1];
     var s18 = useState(false), briefOpen = s18[0], setBriefOpen = s18[1];
@@ -1557,6 +1657,7 @@
        `habits` and is carried untouched. */
     var setHabits   = useCallback(function (v) { setHabitsRaw(v);   save("habitsv2", v); }, []);
     var setGoals    = useCallback(function (v) { setGoalsRaw(v);    save("goals", v); }, []);
+    var setNudge    = useCallback(function (v) { setNudgeRaw(v);    save("nudge", v); }, []);
     var setPrefs    = useCallback(function (v) { setPrefsRaw(v);    save("prefs", v); }, []);
 
     /* boot */
@@ -1583,7 +1684,7 @@
             readKey("recap", null), readKey("quotes", null), readKey("shopping", null),
             readKey("carts", null),
             readKey("habits", null), readKey("markets", null), readKey("schedule", null),
-            readKey("habitsv2", null), readKey("goals", null)
+            readKey("habitsv2", null), readKey("goals", null), readKey("nudge", null)
           ]).then(function (res) {
             if (cancelled) return;
             var t = QD.migrate(res[0], day);
@@ -1610,6 +1711,7 @@
             setTasksRaw(t);
             setHabitsRaw(hb.habits);
             setGoalsRaw(gl);
+            setNudgeRaw(QD.normNudge(res[11]));
             setRecapRaw(rc);
             setQuotesRaw(QD.normQuotes(res[3]));
             /* Carts absorb the old flat shopping list on first run. */
@@ -1665,6 +1767,53 @@
         window.removeEventListener("focus", tick);
       };
     }, []);
+
+    /* The nudge's own housekeeping, after the start-of-day routine above has
+       run. Deferred to an idle moment so it can never delay a first render,
+       and every failure is swallowed: this is the last thing that should stop
+       the app working. */
+    useEffect(function () {
+      if (loading || !nudge.enabled || !window.QDNudge) return;
+      var cancelled = false;
+      function run() {
+        if (cancelled) return;
+        window.QDNudge.pingOpened(nudge, today).then(function (sent) {
+          if (cancelled || !sent) return;
+          setNudge(Object.assign({}, nudge, { lastPingedOn: today }));
+        });
+        window.QDNudge.healthCheck(nudge).then(function (endpoint) {
+          if (cancelled || !endpoint || endpoint === nudge.endpoint) return;
+          setNudge(Object.assign({}, nudge, { endpoint: endpoint }));
+        });
+      }
+      var id = window.requestIdleCallback
+        ? window.requestIdleCallback(run, { timeout: 3000 })
+        : setTimeout(run, 1200);
+      function onShow() { if (document.visibilityState === "visible") run(); }
+      document.addEventListener("visibilitychange", onShow);
+      return function () {
+        cancelled = true;
+        document.removeEventListener("visibilitychange", onShow);
+        if (window.cancelIdleCallback && window.requestIdleCallback) {
+          window.cancelIdleCallback(id);
+        } else clearTimeout(id);
+      };
+    }, [loading, nudge, today, setNudge]);
+
+    /* Arrived from the notification: show the brief whatever the app would
+       otherwise have decided, then clear the query so a refresh is ordinary. */
+    useEffect(function () {
+      if (loading) return;
+      var params;
+      try { params = new URLSearchParams(window.location.search); } catch (e) { return; }
+      if (params.get("open") !== "brief") return;
+      setRoute("tasks");
+      setBriefOpen(true);
+      try {
+        window.history.replaceState({}, "",
+          window.location.pathname + window.location.hash);
+      } catch (e) {}
+    }, [loading]);
 
     /* local midnight rollover — the day's finished work is archived first */
     useEffect(function () {
@@ -1900,6 +2049,48 @@
       commitHabits(habits.habits.filter(function (hb) { return hb.id !== id; }), gen);
     }
 
+    /* ---- the morning nudge ----
+       Every call is optional and deferred. The app must behave exactly as it
+       always has with no signal, no Worker deployed, or a dead subscription. */
+    function enableNudge() {
+      var N = window.QDNudge;
+      if (!N || N.blocker()) return Promise.resolve("blocked");
+      return N.ask().then(function (perm) {
+        if (perm !== "granted") return "denied";
+        var next = Object.assign({}, nudge, { enabled: true });
+        return N.subscribe(next).then(function (endpoint) {
+          setNudge(Object.assign({}, next, { endpoint: endpoint }));
+          return "ok";
+        }).catch(function () { return "failed"; });
+      });
+    }
+    function disableNudge() {
+      var N = window.QDNudge;
+      setNudge(Object.assign({}, nudge, { enabled: false, endpoint: null }));
+      if (!N) return Promise.resolve();
+      return N.unsubscribe().catch(function () {});
+    }
+    /* Saved locally at once so the panel is right offline, and pushed to the
+       server debounced so dragging a time picker is not a burst of writes. */
+    var nudgeTimer = useRef(null);
+    function changeNudge(patch) {
+      var next = QD.normNudge(Object.assign({}, nudge, patch));
+      next.enabled = nudge.enabled;
+      next.endpoint = nudge.endpoint;
+      next.lastPingedOn = nudge.lastPingedOn;
+      setNudge(next);
+      if (!next.enabled || !window.QDNudge) return;
+      if (nudgeTimer.current) clearTimeout(nudgeTimer.current);
+      nudgeTimer.current = setTimeout(function () {
+        window.QDNudge.subscribe(next).catch(function () {});
+      }, 700);
+    }
+    function testNudge() {
+      if (!window.QDNudge) return Promise.resolve(false);
+      return window.QDNudge.sendTest().then(function () { return true; })
+        .catch(function () { return false; });
+    }
+
     /* ---- goal actions ----
        A goal names things; it never owns them. Deleting one unlinks its tasks
        and habits rather than deleting them, and takes only its own record. */
@@ -1961,6 +2152,7 @@
       setQuotes({ list: [] });
       setHabits(QD.blankHabits());
       setGoals(QD.blankGoals());
+      /* The nudge is a device setting, not app data, so a reset leaves it. */
       setArmed(false); setWarn(null);
     }
     function restore(data) {
@@ -1971,6 +2163,7 @@
       setCarts(QD.sweepCarts(QD.normCarts(data.carts, QD.normShopping(data.shopping)), day));
       setHabits(QD.normHabits(data.habitsv2));
       setGoals(QD.normGoals(data.goals));
+      if (data.nudge) setNudge(QD.normNudge(data.nudge));
       if (data.habits || data.markets || data.schedule) {
         setRetired({ habits: data.habits, markets: data.markets, schedule: data.schedule });
       }
@@ -1979,10 +2172,10 @@
     var snapshot = useMemo(function () {
       return { app: "quiet-desk", version: 3, exportedAt: new Date().toISOString(),
         tasks: tasks, recap: recap, quotes: quotes, carts: carts, habitsv2: habits,
-        goals: goals,
+        goals: goals, nudge: nudge,
         habits: retired.habits, markets: retired.markets, schedule: retired.schedule,
         shopping: retired.shopping };
-    }, [tasks, recap, quotes, carts, habits, goals, retired]);
+    }, [tasks, recap, quotes, carts, habits, goals, nudge, retired]);
 
     /* ---- derived ---- */
     var rankedToday = useMemo(function () {
@@ -2163,6 +2356,12 @@
         today: today, onAdd: addParsed }) : null,
       backing ? h(Backup, { onClose: function () { setBacking(false); },
         snapshot: snapshot, onRestore: restore }) : null,
+      settingsOpen ? h(SettingsSheet, {
+        nudge: nudge,
+        onClose: function () { setSettingsOpen(false); },
+        onEnable: enableNudge, onDisable: disableNudge,
+        onChange: changeNudge, onTest: testNudge
+      }) : null,
       taskSheet);
 
     function home() {
@@ -2260,6 +2459,8 @@
                 "Everything here is stored on this device and never leaves it.",
                 build ? span({ className: "build" }, "Build " + build) : null),
               div({ className: "footrow" },
+                button({ className: "linkbtn", onClick: function () { setSettingsOpen(true); } },
+                  "Settings"),
                 button({ className: "linkbtn", onClick: function () { setBacking(true); } },
                   "Back up & restore"),
                 button({ className: "linkbtn danger" + (armed ? " armed" : ""),

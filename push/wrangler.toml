@@ -1,0 +1,25 @@
+name = "life-today-nudge"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+# Every 15 minutes. The window in nudge.js must match this interval, or a
+# chosen minute could fall between two runs and never fire.
+[triggers]
+crons = ["*/15 * * * *"]
+
+# Create with:  npx wrangler kv namespace create NUDGE
+# then paste the id it prints in below.
+[[kv_namespaces]]
+binding = "NUDGE"
+id = "PASTE_YOUR_KV_NAMESPACE_ID_HERE"
+
+[vars]
+# The app's origin, so the browser's preflight passes. "*" also works but is
+# needlessly open for a single-user service.
+ALLOWED_ORIGIN = "https://vmctoyyy.github.io"
+VAPID_SUBJECT = "mailto:javennell@gmail.com"
+
+# Secrets — never in this file, never in the repo. Set them with:
+#   npx wrangler secret put VAPID_PRIVATE_KEY
+#   npx wrangler secret put VAPID_PUBLIC_KEY
+#   npx wrangler secret put SHARED_SECRET
