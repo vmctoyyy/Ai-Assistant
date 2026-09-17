@@ -81,6 +81,14 @@ worker not applying itself, which is fixed under Non-negotiables below.)
 - **Inputs stay at 16px or larger**, or iOS zooms in on focus.
 - **Data lives only on the device** (IndexedDB, localStorage fallback).
   Nothing is uploaded anywhere. Back up & restore is the only way out.
+- **`docs/` now serves two apps.** Quiet Desk is at the root and Last Card at
+  `docs/last-card/` (built from `last-card/`, never edited by hand — run
+  `npm --prefix last-card run build:pages`). The service worker's scope is the
+  whole site, so it must claim only Quiet Desk's own paths: the app root and
+  `vendor/`, `assets/`, `icons/`. Its navigation handler used to answer every
+  in-scope navigation with the Quiet Desk shell, which made the sibling app
+  render as the dashboard. `test/sw.test.js` and `test/pages.test.mjs` exist to
+  stop that coming back; run both after touching `docs/sw.js`.
 
 ## Architecture
 

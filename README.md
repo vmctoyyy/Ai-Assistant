@@ -5,7 +5,9 @@ Two unrelated projects share this repository.
 - **Quiet Desk** — a personal daily dashboard, in [`docs/`](docs/). Static site,
   no build step, served by GitHub Pages from `main`.
 - **Last Card** — a pass-and-play card game, in [`last-card/`](last-card/).
-  TypeScript, React and Vite, with its own package and test suites.
+  TypeScript, React and Vite, with its own package and test suites. Its build
+  output is committed to `docs/last-card/`, so Pages serves it alongside
+  Quiet Desk at `/Ai-Assistant/last-card/`.
 
 ## Quiet Desk
 
