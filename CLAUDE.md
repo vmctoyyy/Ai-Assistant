@@ -3,11 +3,19 @@
 A personal daily dashboard for one user, installed as a PWA on an iPhone home
 screen. Static site in `docs/`, served by GitHub Pages.
 
-**Pages deploys from the working branch `claude/personal-daily-dashboard-jibuyn`,
-not from `main`.** Verified against the deployments API: every `github-pages`
-deployment carries that branch as its ref, and none has ever been cut for a
-`main` commit. So the push to the branch is what reaches the phone. Do not
-"fix" this by pushing only to `main` — that would deploy nothing.
+**Pages builds `main`.** The user switched the source deliberately once Last
+Card joined Quiet Desk in `docs/`: two apps with two working branches leaves no
+single "working branch" that could sensibly be the one that ships.
+
+Before that switch every `github-pages` deployment carried
+`claude/personal-daily-dashboard-jibuyn` as its ref, and a change that reached
+only `main` shipped nothing. **That is now reversed, and the reverse is the
+trap: a push to a working branch deploys nothing on its own — the merge to
+`main` is the deploy.** Do not restore the old note from memory of how this
+repo used to behave.
+
+If a deploy seems not to land, check rather than trust this paragraph: list the
+`pages build and deployment` workflow runs and read `head_branch`.
 
 The app is a home screen plus five apps: **Tasks**, **Recap**, **Quotes**,
 **Shopping** (carts), **Goals**, and one non-tappable placeholder. Goals was
@@ -37,21 +45,20 @@ model under `habitsv2` and must never write to `habits`.
 The user has given standing permission to merge to `main`. Every change ends:
 
 ```
-git push -u origin <feature-branch>     # this is the one that deploys
+git push -u origin <feature-branch>
 git checkout main && git merge <feature-branch>
-git push origin main
+git push origin main                    # this is the one that deploys
 git checkout <feature-branch>
 ```
 
-The **first** line is what reaches the user's phone, since Pages builds the
-working branch (see above). Keeping `main` in step is still worth doing so the
-default branch is not stale, but it is bookkeeping, not the deploy — do not
-report a merge to `main` as the thing that shipped. Report the merge in the
-summary; do not ask permission for it.
+The steps are the same as they always were; only which one ships has changed.
+The **third** line is what reaches the user's phone now that Pages builds
+`main` (see above), so work left on a feature branch reaches nobody. Report the
+merge in the summary; do not ask permission for it.
 
-(An earlier version of this file claimed Pages served `main`. It never has.
-The "silently missed update" that story was attached to was really the service
-worker not applying itself, which is fixed under Non-negotiables below.)
+(This file has twice carried a confident and wrong account of which branch
+deploys. Both times the fix was reading `head_branch` on the deployment runs.
+Do that before rewriting this section again.)
 
 ## Non-negotiables
 
