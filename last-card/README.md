@@ -217,6 +217,27 @@ plays wrong at a real table.
   for three seconds. The engine does not depend on it — it marks the miss when
   the next player actually moves — so a slow hand-over cannot break the rule.
 
+## Phase 2 — networked play
+
+Started. The engine already runs anywhere, so the server side is mostly a
+matter of deciding who may know what.
+
+`src/engine/view.ts` is the first piece: `viewFor(state, playerId)` returns
+only what one device is entitled to see. Pass-and-play could hand the whole
+`GameState` to the screen, because the screen *was* the privacy boundary; over
+a network it is not, and three things leak if this is done carelessly — other
+players' hands, the draw pile (whose order is the next several draws), and the
+RNG seed (which is every future shuffle). `hiddenFrom()` names what must not
+appear, and the tests serialise each player's view at every step of a whole
+game and look for it.
+
+Still to come: a room/session protocol, a Cloudflare Worker with one Durable
+Object per room holding the authoritative `GameState` and validating every
+move through `applyMove`, and a client that renders a `PlayerView` instead of
+a `GameState`. Note this sandbox cannot reach Cloudflare — the Worker in
+`/push` has never run from here either — so the Worker can be built and tested
+locally but not deployed or verified live from this environment.
+
 ## Out of scope for Phase 1
 
 Networking, accounts, persistence, scoring across games, AI opponents, and any
