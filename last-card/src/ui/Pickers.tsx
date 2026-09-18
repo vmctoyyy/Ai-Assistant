@@ -1,8 +1,9 @@
 import { useState } from 'react';
 
 import { STANDARD_RANKS, SUITS } from '../engine/types';
-import type { Rank, Suit } from '../engine/types';
+import type { GameState, Rank, Suit } from '../engine/types';
 import { isRed, suitName, suitSymbol } from '../engine/deck';
+import { nominationPlayability } from '../engine/rules';
 
 export function Sheet({
   title,
@@ -55,15 +56,24 @@ export function SuitPicker({
   );
 }
 
-/** Shown when a joker is played: it may stand in for any card in the game. */
+/**
+ * Shown when a joker is played. A joker stands in for a card that could have
+ * been played, so anything illegal is unpickable here rather than accepted and
+ * then rejected — the rule is easier to see than to be told.
+ */
 export function JokerPicker({
+  state,
   onPick,
   onCancel,
 }: {
+  state: GameState;
   onPick: (card: { rank: Rank; suit: Suit }) => void;
   onCancel: () => void;
 }) {
   const [rank, setRank] = useState<Rank | null>(null);
+
+  const allowed = (r: Rank, s: Suit) => nominationPlayability(state, { rank: r, suit: s }).ok;
+  const rankAllowed = (r: Rank) => SUITS.some((s) => allowed(r, s));
 
   return (
     <Sheet title="The joker stands in for…" onCancel={onCancel}>
@@ -73,6 +83,7 @@ export function JokerPicker({
             key={r}
             type="button"
             className={`rank-btn ${rank === r ? 'is-on' : ''}`}
+            disabled={!rankAllowed(r)}
             onClick={() => setRank(r)}
           >
             {r}
@@ -85,8 +96,8 @@ export function JokerPicker({
             key={s}
             type="button"
             className={`suit-btn ${isRed(s) ? 'is-red' : 'is-black'}`}
-            disabled={!rank}
-            onClick={() => rank && onPick({ rank, suit: s })}
+            disabled={!rank || !allowed(rank, s)}
+            onClick={() => rank && allowed(rank, s) && onPick({ rank, suit: s })}
           >
             <span className="suit-btn-pip">{suitSymbol(s)}</span>
             <span className="suit-btn-name">{suitName(s)}</span>
@@ -94,7 +105,11 @@ export function JokerPicker({
         ))}
       </div>
       <p className="sheet-hint">
-        {rank ? `Pick a suit for the ${rank}.` : 'Pick a rank, then a suit.'}
+        {rank
+          ? `Pick a suit for the ${rank}.`
+          : state.pickupCount > 0
+            ? `A pick-up of ${state.pickupCount} is running, so the joker has to be a 2, 5, 7, 10 or jack.`
+            : `It can only be a card you could have played: a ${state.activeRank}, or a ${suitName(state.activeSuit)}.`}
       </p>
     </Sheet>
   );

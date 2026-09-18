@@ -8,6 +8,8 @@ import {
   isCardPlayable,
   jumpInCards,
   legalMoves,
+  legalNominations,
+  nominationPlayability,
   playerById,
   topCard,
 } from './rules';
@@ -212,6 +214,34 @@ describe('aces', () => {
     expect(after.pickupCount).toBe(0);
     expect(after.activeSuit).toBe('S'); // the ace's own suit, not the called one
     expect(after.activeRank).toBe('A');
+    // Nothing records a call either, so the pile cannot claim a suit change.
+    expect(topCard(after)!.calledSuit).toBeUndefined();
+  });
+
+  it('blocks with its own suit whichever suit is asked for', () => {
+    const s = scenario({ hands: { p1: ['AS', '3C'] }, pile: ['2H'], pickup: 4 });
+    for (const asked of ['H', 'D', 'C', 'S'] as const) {
+      const after = play(s, 'p1', ['AS'], { calledSuit: asked });
+      expect(after.activeSuit).toBe('S');
+      expect(after.pickupCount).toBe(0);
+    }
+    // And with no nomination at all it is still accepted, unlike in normal play.
+    expect(play(s, 'p1', ['AS']).activeSuit).toBe('S');
+  });
+
+  it('takes the suit of the last ace when several block together', () => {
+    const s = scenario({ hands: { p1: ['AS', 'AD', 'QC'] }, pile: ['2H'], pickup: 8 });
+    const after = play(s, 'p1', ['AS', 'AD'], { calledSuit: 'C' });
+    expect(after.pickupCount).toBe(0);
+    expect(after.activeSuit).toBe('D');
+  });
+
+  it('only nominates when there is no pick-up to stop', () => {
+    const open = scenario({ hands: { p1: ['AS', '3C'] }, pile: ['8H'] });
+    expect(play(open, 'p1', ['AS'], { calledSuit: 'C' }).activeSuit).toBe('C');
+
+    const chained = scenario({ hands: { p1: ['AS', '3C'] }, pile: ['8H'], pickup: 2 });
+    expect(play(chained, 'p1', ['AS'], { calledSuit: 'C' }).activeSuit).toBe('S');
   });
 
   it('is playable on any card', () => {
@@ -314,18 +344,68 @@ describe('the one-eyed king', () => {
 // ---------------------------------------------------------------------------
 
 describe('jokers', () => {
-  it('takes on whatever card it is nominated as', () => {
+  it('stands in for a card that matches the pile, by suit or by rank', () => {
     const s = scenario({ hands: { p1: ['JOKER', '3C'] }, pile: ['8H'] });
-    const after = play(s, 'p1', ['JOKER'], { calledCard: { rank: 'Q', suit: 'S' } });
-    expect(after.activeRank).toBe('Q');
-    expect(after.activeSuit).toBe('S');
+
+    const bySuit = play(s, 'p1', ['JOKER'], { calledCard: { rank: 'Q', suit: 'H' } });
+    expect([bySuit.activeRank, bySuit.activeSuit]).toEqual(['Q', 'H']);
+
+    const byRank = play(s, 'p1', ['JOKER'], { calledCard: { rank: '8', suit: 'S' } });
+    expect([byRank.activeRank, byRank.activeSuit]).toEqual(['8', 'S']);
+  });
+
+  it('cannot be called a card that could not have been played', () => {
+    // The reported bug: a jack of diamonds went down on a six of hearts.
+    const s = scenario({ hands: { p1: ['JOKER', '3C'] }, pile: ['6H'] });
+    expect(() => play(s, 'p1', ['JOKER'], { calledCard: { rank: 'J', suit: 'D' } })).toThrow(
+      /only stand in for a card that could be played/,
+    );
+    expect(nominationPlayability(s, { rank: 'J', suit: 'D' }).ok).toBe(false);
+    expect(nominationPlayability(s, { rank: 'J', suit: 'H' }).ok).toBe(true); // hearts
+    expect(nominationPlayability(s, { rank: '6', suit: 'D' }).ok).toBe(true); // a six
+  });
+
+  it('cannot escape that by being called an ace or the one-eyed king', () => {
+    // Both are playable at any time, so inheriting that would reopen the hole:
+    // a joker called an ace could go down on anything and then name a suit.
+    const s = scenario({ hands: { p1: ['JOKER', '3C'] }, pile: ['6H'] });
+    expect(() => play(s, 'p1', ['JOKER'], { calledCard: { rank: 'A', suit: 'S' } })).toThrow(
+      /could be played/,
+    );
+    expect(() => play(s, 'p1', ['JOKER'], { calledCard: { rank: 'K', suit: 'D' } })).toThrow(
+      /could be played/,
+    );
+    // A real ace and a real one-eyed king are of course still playable there.
+    expect(isCardPlayable(s, c('AS'))).toBe(true);
+    expect(isCardPlayable(s, c('KD'))).toBe(true);
+  });
+
+  it('is still always playable, because a legal nomination always exists', () => {
+    const s = scenario({ hands: { p1: ['JOKER', '3C'] }, pile: ['6H'] });
+    expect(isCardPlayable(s, c('JOKER'))).toBe(true);
+    expect(legalNominations(s).length).toBeGreaterThan(0);
+
+    const chained = scenario({ hands: { p1: ['JOKER', '3C'] }, pile: ['6H'], pickup: 4 });
+    expect(isCardPlayable(chained, c('JOKER'))).toBe(true);
+    expect(legalNominations(chained).length).toBeGreaterThan(0);
   });
 
   it('carries the power of the card it names', () => {
     const s = scenario({ hands: { p1: ['JOKER', '3C'] }, pile: ['8H'] });
-    const after = play(s, 'p1', ['JOKER'], { calledCard: { rank: '2', suit: 'D' } });
+    const after = play(s, 'p1', ['JOKER'], { calledCard: { rank: '2', suit: 'H' } });
     expect(after.pickupCount).toBe(2);
     expect(after.activeRank).toBe('2');
+  });
+
+  it('must name a chain card while a pick-up is running', () => {
+    const s = scenario({ hands: { p1: ['JOKER', '3C'] }, pile: ['2C'], pickup: 4 });
+    expect(nominationPlayability(s, { rank: '5', suit: 'H' }).ok).toBe(true);
+    expect(nominationPlayability(s, { rank: '7', suit: 'S' }).ok).toBe(true);
+    expect(nominationPlayability(s, { rank: '3', suit: 'H' }).ok).toBe(false);
+    expect(legalNominations(s).every((f) => ['2', '5', '7', '10', 'J'].includes(f.rank))).toBe(true);
+
+    const blocked = play(s, 'p1', ['JOKER'], { calledCard: { rank: '7', suit: 'S' } });
+    expect(blocked.pickupCount).toBe(0);
   });
 
   it('may join a group of the rank it names', () => {
@@ -335,9 +415,37 @@ describe('jokers', () => {
     expect(after.activeSuit).toBe('D');
   });
 
-  it('must be nominated', () => {
+  it('is held to the same rule when it jumps in', () => {
+    const s = scenario({
+      players: FOUR,
+      hands: { p2: ["JOKER'", 'QD'] },
+      pile: ['JOKER'],
+      activeSuit: 'H',
+      activeRank: '6',
+      current: 2,
+    });
+    expect(() =>
+      applyMove(s, {
+        kind: 'jumpIn',
+        playerId: 'p2',
+        cards: [c("JOKER'")],
+        calledCard: { rank: 'J', suit: 'D' },
+      }),
+    ).toThrow(/could be played/);
+
+    const ok = applyMove(s, {
+      kind: 'jumpIn',
+      playerId: 'p2',
+      cards: [c("JOKER'")],
+      calledCard: { rank: 'J', suit: 'H' },
+    });
+    expect([ok.activeRank, ok.activeSuit]).toEqual(['J', 'H']);
+  });
+
+  it('must be nominated, and must name a real card', () => {
     const s = scenario({ hands: { p1: ['JOKER', '3C'] }, pile: ['8H'] });
     expect(() => play(s, 'p1', ['JOKER'])).toThrow(/must be nominated/);
+    expect(nominationPlayability(s, { rank: 'JOKER', suit: 'H' }).ok).toBe(false);
   });
 });
 

@@ -24,8 +24,19 @@ npm run build:pages     # -> ../docs/last-card/, which GitHub Pages serves
 npm run build:artifact  # -> dist-artifact/last-card.html, one self-contained file
 ```
 
-`build:pages` output is committed, because Pages serves straight from `docs/`
-on `main`. Never hand-edit `docs/last-card/` — rebuild it.
+`build:pages` output is committed, because Pages serves straight from `docs/`.
+Never hand-edit `docs/last-card/` — rebuild it.
+
+It ships as an installable app: `public/manifest.webmanifest`, an
+`apple-touch-icon` set, and `public/sw.js` for offline play, so "Add to Home
+Screen" gives a real icon and a standalone window rather than a browser tab.
+The icons are generated — `node tools/make-icons.mjs` re-renders them through
+headless Chromium after a design change; do not edit the PNGs.
+
+**Both apps share one origin, so they share one `CacheStorage`.** Each worker
+must sweep only its own cache prefix on activate. Deleting every unrecognised
+key — the obvious way to write that cleanup — makes whichever app activates
+last wipe the other's offline copy. `test/sw.test.js` asserts both directions.
 
 Quiet Desk sits at the root of the same Pages site and registers a service
 worker whose scope covers the whole thing, this app included. It is scoped to
@@ -120,11 +131,21 @@ plays wrong at a real table.
    effect", so you may go out on K♠/K♥/K♣. The one-eyed K♦ *is* a power card and
    you may not go out on it.
 
-6. **A joker carries the power of the card it names.** "May be played as any
-   legal card in the game" — so a joker called as a 2 adds 2 to the chain, and
-   one called as a 7 blocks it. The joker itself is always legal to play
-   whatever it is nominated as; the nomination only sets the effect and the suit
-   that follows.
+6. **A joker must name a card that could have been played.** "May be played as
+   any legal card in the game" — the weight is on *legal*. The first build read
+   the joker as a pure wild and let the nomination be anything, which put a J♦
+   on a 6♥ in a real game. The nomination is now held to ordinary matching: it
+   must match the active rank or suit, or be a 2/5/7/10/J while a pick-up is
+   running. It carries the power of whatever it names, so a joker called a 2
+   adds 2 to the chain and one called a 7 blocks it.
+   The always-playable exemptions deliberately do **not** carry over — a joker
+   may not be called an ace or the one-eyed K♦. Both are legal on anything, so
+   allowing them would reopen the same hole one step further along: call it an
+   ace, and it goes down on anything and names any suit.
+   The joker itself is still never the blocker — some legal nomination always
+   exists — so it never sits dead in a hand. `legalNominations(state)` returns
+   the full set, and the picker greys out the rest rather than accepting a
+   choice and then rejecting it.
 
 7. **The one-eyed king takes exactly one card.** If two K♦ go down together,
    only the card that was on the pile before the group is picked up — the second

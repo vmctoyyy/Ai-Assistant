@@ -1,6 +1,7 @@
 /* Quiet Desk service worker — precache everything, serve cache-first.
    Bump CACHE when any asset below changes. */
-var CACHE = "quiet-desk-v28";
+var CACHE_PREFIX = "quiet-desk-";
+var CACHE = CACHE_PREFIX + "v29";
 
 var ASSETS = [
   "./",
@@ -30,6 +31,10 @@ self.addEventListener("activate", function (e) {
   e.waitUntil(
     caches.keys().then(function (keys) {
       return Promise.all(keys.map(function (k) {
+        /* CacheStorage is shared across the whole origin, and Last Card keeps
+           its own cache beside this one. Sweep only our own old versions —
+           deleting everything took the other app's offline copy with it. */
+        if (k.indexOf(CACHE_PREFIX) !== 0) return null;
         return k === CACHE ? null : caches.delete(k);
       }));
     }).then(function () { return self.clients.claim(); })

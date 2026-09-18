@@ -56,9 +56,13 @@ async function tap(selector, opts = {}) {
 async function resolveNomination() {
   if ((await page.locator('.sheet').count()) === 0) return;
   if ((await page.locator('.rank-grid').count()) > 0) {
-    check('joker suits stay disabled until a rank is chosen', await page.locator('.suit-btn').first().isDisabled());
-    await tap('.rank-btn');
-    check('picking a rank enables the suits', !(await page.locator('.suit-btn').first().isDisabled()));
+    check(
+      'joker suits stay disabled until a rank is chosen',
+      (await page.locator('.suit-btn:not(:disabled)').count()) === 0,
+    );
+    await tap('.rank-btn:not(:disabled)');
+    const live = await page.locator('.suit-btn:not(:disabled)').count();
+    check('picking a rank enables only the suits it may legally be', live > 0 && live <= 4, `${live} of 4`);
   }
   await tap('.suit-btn:not(:disabled)');
   check('the nomination sheet closes once it is answered', (await page.locator('.sheet').count()) === 0);
@@ -170,9 +174,24 @@ check('only the joker is playable on the pinned deal', live === 1, `${live} live
 await tap('.hand .card:not(.is-dimmed)');
 await tap('.btn-primary');
 check('the joker opens the nomination sheet', (await page.locator('.rank-grid').count()) === 1);
-await resolveNomination();
+
+// The pile is a 3 of hearts, so a joker may only be called a 3 or a heart.
+// Picking the jack must leave hearts as the single legal suit — this is the
+// reported bug: a jack of diamonds went down on a six of hearts.
+await tapText('J');
+const suits = page.locator('.suit-btn:not(:disabled)');
+check('a jack can only be a heart here', (await suits.count()) === 1, `${await suits.count()} suits offered`);
+check('and that suit is hearts', (await suits.first().textContent()).includes('hearts'));
+const offDiamonds = await page
+  .locator('.suit-btn', { hasText: 'diamonds' })
+  .first()
+  .isDisabled();
+check('diamonds is unpickable, not merely rejected afterwards', offDiamonds);
+
+await tap('.suit-btn:not(:disabled)');
 const jokerTop = await page.locator('.pile .card-lg').textContent();
 check('the joker is on the pile with its nomination', /JOKER/.test(jokerTop), jokerTop);
+check('and it took the legal suit', /as J♥/.test(jokerTop), jokerTop);
 
 check('no page errors were logged', errors.length === 0, errors.join(' | '));
 

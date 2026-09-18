@@ -15,6 +15,8 @@ import {
   type Move,
   type PlayedCard,
   type Player,
+  STANDARD_RANKS,
+  SUITS,
   type Rank,
   type Suit,
 } from './types';
@@ -93,18 +95,77 @@ const OK: Playability = { ok: true };
  * time. While a pick-up chain is running, 2s, 5s, 7s, 10s and jacks may be
  * played on any suit; everything else has to wait for the chain to resolve.
  */
+/**
+ * Whether a nominated card could itself have been played.
+ *
+ * A joker "may be played as any legal card in the game", so the card it stands
+ * in for has to be one that was legal to play. The always-playable exemptions
+ * — the ace and the one-eyed king — deliberately do NOT carry over here: a
+ * joker called an ace would be legal on anything and could then name any suit,
+ * which is exactly the hole this rule closes.
+ */
+export function nominationPlayability(state: GameState, face: CardFace): Playability {
+  if (face.rank === 'JOKER' || face.suit === null) {
+    return { ok: false, reason: 'A joker must name a real card.' };
+  }
+
+  const matches = face.suit === state.activeSuit || face.rank === state.activeRank;
+
+  if (isPickupActive(state)) {
+    if (CHAIN_RANKS.includes(face.rank)) return OK;
+    if (state.config.allowPlainCardDuringPickup && matches) return OK;
+    return {
+      ok: false,
+      reason:
+        `A pick-up of ${state.pickupCount} is running, so the joker has to stand in for ` +
+        `a 2, 5, 7, 10 or jack.`,
+    };
+  }
+
+  if (matches) return OK;
+  return {
+    ok: false,
+    reason:
+      `A joker can only stand in for a card that could be played. ${cardLabel(face)} ` +
+      `does not match ${state.activeRank} or ${suitName(state.activeSuit)}.`,
+  };
+}
+
+/** Every card a joker could legally be called right now. */
+export function legalNominations(state: GameState): CardFace[] {
+  const out: CardFace[] = [];
+  for (const rank of STANDARD_RANKS) {
+    for (const suit of SUITS) {
+      if (nominationPlayability(state, { rank, suit }).ok) out.push({ rank, suit });
+    }
+  }
+  return out;
+}
+
+/**
+ * Whether a single card may be led onto the pile right now.
+ *
+ * The ace and the one-eyed king of diamonds are playable at any time. A joker
+ * is too — there is always some legal card for it to stand in for — but once a
+ * nomination is named it has to be a legal one. While a pick-up chain is
+ * running, 2s, 5s, 7s, 10s and jacks may be played on any suit; everything else
+ * has to wait for the chain to resolve.
+ */
 export function cardPlayability(
   state: GameState,
   card: Card,
   calledCard?: { rank: Rank; suit: Suit },
 ): Playability {
-  const face = faceOf(card, calledCard);
+  if (card.rank === 'JOKER') {
+    // Without a nomination there is nothing to check yet, and some legal
+    // nomination always exists, so the joker itself is never the blocker.
+    return calledCard ? nominationPlayability(state, calledCard) : OK;
+  }
 
-  // Wilds and the one-eyed king ignore the pile entirely.
-  if (card.rank === 'JOKER') return OK;
   if (card.rank === 'A') return OK;
-  if (isOneEyedKing(face) || isOneEyedKing(card)) return OK;
+  if (isOneEyedKing(card)) return OK;
 
+  const face: CardFace = { rank: card.rank, suit: card.suit };
   const matches = face.suit === state.activeSuit || face.rank === state.activeRank;
 
   if (isPickupActive(state)) {
@@ -336,6 +397,12 @@ function performPlay(
       throw new IllegalMoveError(
         `A jump-in needs the exact same card. The top card is ${cardLabel(top.card)}.`,
       );
+    }
+    // Matching the top card exactly licenses the play, but a joker leading one
+    // still has to name a card that could have been played.
+    if (played[0].rank === 'JOKER' && calledCard) {
+      const nomination = nominationPlayability(s, calledCard);
+      if (!nomination.ok) throw new IllegalMoveError(nomination.reason!);
     }
   } else {
     const lead = cardPlayability(s, played[0], calledCard);

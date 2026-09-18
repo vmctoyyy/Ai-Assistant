@@ -89,6 +89,13 @@ worker not applying itself, which is fixed under Non-negotiables below.)
   in-scope navigation with the Quiet Desk shell, which made the sibling app
   render as the dashboard. `test/sw.test.js` and `test/pages.test.mjs` exist to
   stop that coming back; run both after touching `docs/sw.js`.
+- **`CacheStorage` is per-origin, so the two apps share it.** Last Card has its
+  own worker at `docs/last-card/sw.js` with its own `last-card-` cache. Each
+  worker must sweep **only its own prefix** on activate — the usual "delete
+  every key that is not mine" cleanup makes whichever app activates last wipe
+  the other's offline copy, and Quiet Desk stops cold-starting without signal.
+  `CACHE_PREFIX` guards this in both workers and `test/sw.test.js` asserts both
+  directions.
 
 ## Architecture
 

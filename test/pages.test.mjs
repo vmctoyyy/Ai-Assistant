@@ -110,6 +110,50 @@ await page.mouse.click(r.x + r.width / 2, r.y + r.height / 2);
 const cards = await page.locator('.hand .card').count();
 check('a hand is dealt and revealed', cards === 7, `${cards} cards`);
 
+// --- the game installs as its own app ------------------------------------
+// Two workers on one origin: Quiet Desk's at the site root, the game's one
+// level down. The narrower scope wins for pages inside it.
+const gameScope = await page.evaluate(async () => {
+  const reg = await navigator.serviceWorker.ready;
+  return reg.scope;
+});
+check('the game registers its own worker', gameScope.endsWith('/last-card/'), gameScope);
+
+const manifest = await page.evaluate(async () => {
+  const href = document.querySelector('link[rel=manifest]')?.getAttribute('href');
+  if (!href) return null;
+  const res = await fetch(new URL(href, location.href));
+  return res.ok ? await res.json() : null;
+});
+check('it ships a manifest', manifest !== null);
+check('the manifest opens standalone', manifest?.display === 'standalone', manifest?.display);
+check('and is named for the home screen', manifest?.short_name === 'Last Card', manifest?.short_name);
+
+const iconOk = await page.evaluate(async () => {
+  const href = document.querySelector('link[rel="apple-touch-icon"][sizes="180x180"]')
+    ?.getAttribute('href');
+  if (!href) return false;
+  const res = await fetch(new URL(href, location.href));
+  return res.ok && (res.headers.get('content-type') || '').includes('image/png');
+});
+check('the home-screen icon resolves', iconOk);
+
+// Once controlled, it must deal a hand with no network at all.
+await page.goto(`${site}last-card/`);
+await page.evaluate(() => navigator.serviceWorker.ready);
+await page.reload();
+await context.setOffline(true);
+await page.goto(`${site}last-card/`);
+let offlineTitle = null;
+try {
+  await page.waitForSelector('.topbar-title', { timeout: 8000 });
+  offlineTitle = await page.locator('.topbar-title').textContent();
+} catch {
+  offlineTitle = '[did not load]';
+}
+check('the game cold-starts with no signal', offlineTitle === 'Last Card', offlineTitle);
+await context.setOffline(false);
+
 // --- and Quiet Desk still works ------------------------------------------
 await page.goto(site);
 await page.waitForSelector('body');

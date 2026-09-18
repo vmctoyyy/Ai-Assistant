@@ -86,8 +86,63 @@ is("does not answer a sibling app's navigation", navigatedTo(SCOPE + "last-card/
 /* A stale CACHE name is how an update silently fails to reach the phone. */
 console.log("cache version");
 var src = fs.readFileSync(path.join(__dirname, "..", "docs", "sw.js"), "utf8");
-is("CACHE is set", /var CACHE = "quiet-desk-v\d+";/.test(src), true);
+is("CACHE is set", /var CACHE = CACHE_PREFIX \+ "v\d+";/.test(src), true);
 
-console.log("");
-console.log(passed + " passed, " + failed + " failed");
-process.exit(failed === 0 ? 0 : 1);
+/* CacheStorage is per-origin, not per-scope. Both apps keep a cache here, so
+   a worker that sweeps every key it does not recognise deletes the other
+   app's offline copy — which is exactly what happened the first time. */
+console.log("cache sweeping");
+
+function sweptBy(swPath, prefix, keys) {
+  var deleted = [];
+  var listeners = {};
+  var sandbox = {
+    self: {
+      registration: { scope: SCOPE },
+      addEventListener: function (name, fn) { listeners[name] = fn; },
+      skipWaiting: function () {},
+      clients: { claim: function () { return Promise.resolve(); } }
+    },
+    caches: {
+      open: function () { return Promise.resolve({ put: function () {}, addAll: function () {} }); },
+      keys: function () { return Promise.resolve(keys); },
+      match: function () { return Promise.resolve(null); },
+      delete: function (k) { deleted.push(k); return Promise.resolve(true); }
+    },
+    fetch: function () { return Promise.resolve(); },
+    URL: URL,
+    Promise: Promise,
+    console: console
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(swPath, "utf8"), sandbox);
+  var waited = null;
+  listeners.activate({ waitUntil: function (p) { waited = p; } });
+  return waited.then(function () { return deleted; });
+}
+
+var qdPath = path.join(__dirname, "..", "docs", "sw.js");
+var lcPath = path.join(__dirname, "..", "last-card", "public", "sw.js");
+var keys = ["quiet-desk-v27", "quiet-desk-v29", "last-card-v1", "last-card-v0", "something-else"];
+
+var pending = Promise.all([
+  sweptBy(qdPath, "quiet-desk-", keys).then(function (deleted) {
+    is("Quiet Desk drops its own old version", deleted.indexOf("quiet-desk-v27") !== -1, true);
+    is("Quiet Desk keeps its current one", deleted.indexOf("quiet-desk-v29"), -1);
+    is("Quiet Desk leaves Last Card's cache alone", deleted.indexOf("last-card-v1"), -1);
+    is("Quiet Desk leaves Last Card's old cache alone", deleted.indexOf("last-card-v0"), -1);
+    is("Quiet Desk leaves anything unrecognised alone", deleted.indexOf("something-else"), -1);
+  }),
+  sweptBy(lcPath, "last-card-", keys).then(function (deleted) {
+    is("Last Card drops its own old version", deleted.indexOf("last-card-v0") !== -1, true);
+    is("Last Card keeps its current one", deleted.indexOf("last-card-v1"), -1);
+    is("Last Card leaves Quiet Desk's cache alone", deleted.indexOf("quiet-desk-v29"), -1);
+    is("Last Card leaves Quiet Desk's old cache alone", deleted.indexOf("quiet-desk-v27"), -1);
+  })
+]);
+
+pending.then(function () {
+  console.log("");
+  console.log(passed + " passed, " + failed + " failed");
+  process.exit(failed === 0 ? 0 : 1);
+});

@@ -191,6 +191,7 @@ export function Turn({
       ) : null}
       {asking === 'joker' ? (
         <JokerPicker
+          state={game}
           onCancel={() => setAsking(null)}
           onPick={(card) => (drawn ? playDrawn({ calledCard: card }) : send({ calledCard: card }))}
         />
