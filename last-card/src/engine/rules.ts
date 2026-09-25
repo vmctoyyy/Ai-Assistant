@@ -340,6 +340,28 @@ function checkEights(s: GameState): void {
 // Playing cards
 // ---------------------------------------------------------------------------
 
+/**
+ * How many players *after* you a group of tens or jacks carries past a live
+ * pick-up. You are always the first one carried, which is what the card is
+ * for; the rest fall to the players after you.
+ *
+ * Capped so the chain can never come back round to the player who ducked it.
+ * Without the cap, two tens heads-up skip you and then your opponent, landing
+ * the pick-up back on you — playing a second power card would punish you,
+ * which no version of this rule intends.
+ */
+function carriedPast(s: GameState, n: number): number {
+  return Math.max(0, Math.min(n - 1, s.players.length - 2));
+}
+
+/** How a 10 or a jack reads in the log when it carries you past a pick-up. */
+function duckedPickup(s: GameState, n: number): string {
+  const others = carriedPast(s, n);
+  const carried =
+    others === 0 ? '' : ` and ${others} player${others === 1 ? '' : 's'} after you`;
+  return `Ducked the pick-up${carried}; ${s.pickupCount} passes on`;
+}
+
 interface PlayOptions {
   /** Pick and Play: a card drawn this turn. It may never be the winning card. */
   isPickAndPlay?: boolean;
@@ -466,13 +488,27 @@ function performPlay(
       break;
     case '10':
       if (chainWasActive) {
-        log(s, playerId, `Skipped the pick-up; ${s.pickupCount} passes to the next player`);
+        // During a pick-up a ten skips a player out of the pick-up rather than
+        // skipping a turn, and the first one it spends is on you. Each extra
+        // ten in the group carries one more player past it.
+        extraSkips = carriedPast(s, n);
+        log(s, playerId, duckedPickup(s, n));
       } else {
         extraSkips = n;
       }
       break;
     case 'J':
-      if (s.players.length === 2) {
+      if (chainWasActive) {
+        // A jack works the same way during a pick-up. Heads-up it must not
+        // also skip a turn, or the single skip lands on the other player and
+        // the chain comes straight back to whoever just ducked it.
+        if (s.players.length > 2 && n % 2 === 1) {
+          s.direction = (s.direction === 1 ? -1 : 1) as 1 | -1;
+          log(s, playerId, 'Direction reversed');
+        }
+        extraSkips = carriedPast(s, n);
+        log(s, playerId, duckedPickup(s, n));
+      } else if (s.players.length === 2) {
         extraSkips = n; // direction is meaningless heads-up, so a jack skips
       } else if (n % 2 === 1) {
         s.direction = (s.direction === 1 ? -1 : 1) as 1 | -1;

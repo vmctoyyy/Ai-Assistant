@@ -276,6 +276,96 @@ describe('chain responses', () => {
     expect(turnOf(after)).toBe('p3');
   });
 
+  it('sends the chain to the other player when a jack ducks it heads-up', () => {
+    // The reported case. Ana plays a two; Ben answers with a jack. The jack
+    // spends its skip carrying Ben past the pick-up, so the chain lands on
+    // Ana — it must not skip Ana's turn and come straight back to Ben.
+    let s = scenario({ hands: { p1: ['2H', 'QC'], p2: ['JS', 'QD'] }, pile: ['8H'] });
+
+    s = play(s, 'p1', ['2H']);
+    expect(s.pickupCount).toBe(2);
+    expect(turnOf(s)).toBe('p2');
+
+    s = play(s, 'p2', ['JS']);
+    expect(s.pickupCount).toBe(2); // the chain is intact
+    expect(turnOf(s)).toBe('p1'); // and it is Ana's problem now
+    expect(hand(s, 'p2')).toHaveLength(1); // Ben picked nothing up
+  });
+
+  it('does the same with a ten heads-up', () => {
+    let s = scenario({ hands: { p1: ['2H', 'QC'], p2: ['10S', 'QD'] }, pile: ['8H'] });
+    s = play(s, 'p1', ['2H']);
+    s = play(s, 'p2', ['10S']);
+    expect(s.pickupCount).toBe(2);
+    expect(turnOf(s)).toBe('p1');
+  });
+
+  it('still skips a whole turn with a jack heads-up when no chain is running', () => {
+    // Only the pick-up changes the jack's meaning; ordinary play is untouched.
+    const s = scenario({ hands: { p1: ['JH', 'QC'], p2: ['3C'] }, pile: ['8H'] });
+    expect(turnOf(play(s, 'p1', ['JH']))).toBe('p1');
+  });
+
+  it('carries one more player past the pick-up for each extra card', () => {
+    // Ana ducks it herself and the second ten carries Ben past it too, so the
+    // chain lands on Cara.
+    const s = scenario({
+      players: FOUR,
+      hands: { p1: ['10C', '10S', 'QC'] },
+      pile: ['2H'],
+      pickup: 6,
+    });
+    const after = play(s, 'p1', ['10C', '10S']);
+    expect(after.pickupCount).toBe(6);
+    expect(turnOf(after)).toBe('p3');
+  });
+
+  it('counts a pair of jacks the same way, with no net reversal', () => {
+    const s = scenario({
+      players: FOUR,
+      hands: { p1: ['JC', 'JS', 'QC'] },
+      pile: ['2H'],
+      pickup: 6,
+    });
+    const after = play(s, 'p1', ['JC', 'JS']);
+    expect(after.direction).toBe(1); // reversed twice
+    expect(after.pickupCount).toBe(6);
+    expect(turnOf(after)).toBe('p3');
+  });
+
+  it('never picks anything up for the player who ducked', () => {
+    const s = scenario({
+      players: FOUR,
+      hands: { p1: ['10C', 'QC'] },
+      pile: ['2H'],
+      pickup: 12,
+      drawPile: ['3C', '3D', '3H', '3S'],
+    });
+    const after = play(s, 'p1', ['10C']);
+    expect(hand(after, 'p1')).toHaveLength(1);
+    expect(after.pickupCount).toBe(12);
+  });
+
+  it('never brings the pick-up back round to whoever ducked it', () => {
+    // Heads-up there is nobody to carry past, so a second ten adds nothing
+    // rather than skipping the opponent and landing the chain back on you.
+    let s = scenario({ hands: { p1: ['2H', 'QC'], p2: ['10S', '10H', 'QD'] }, pile: ['8H'] });
+    s = play(s, 'p1', ['2H']);
+    const after = play(s, 'p2', ['10S', '10H']);
+    expect(turnOf(after)).toBe('p1');
+    expect(after.pickupCount).toBe(2);
+
+    // Same at four players: three tens would wrap all the way round, so the
+    // chain stops at the last player before you.
+    const four = scenario({
+      players: FOUR,
+      hands: { p1: ['10C', '10S', '10H', '10D', 'QC'] },
+      pile: ['2H'],
+      pickup: 6,
+    });
+    expect(turnOf(play(four, 'p1', ['10C', '10S', '10H', '10D']))).toBe('p4');
+  });
+
   it('reverses direction with a jack while a chain is running', () => {
     const s = scenario({ players: FOUR, hands: { p1: ['JH', 'QC'] }, pile: ['2C'], pickup: 6 });
     const after = play(s, 'p1', ['JH']);

@@ -154,9 +154,21 @@ plays wrong at a real table.
 8. **Multi-card effects stack.** Two 2s is a pick-up of 4; two 10s skip two
    players; two jacks reverse twice (so, not at all), or skip twice heads-up.
 
-9. **A 10 during a chain skips nobody extra.** It passes the chain, intact, to
-   the very next player — as in the worked example, where `10♣` is followed by
-   the next player's `J♥`.
+9. **During a pick-up, a 10 or a jack carries you past it rather than skipping
+   a turn.** The card's skip is spent on *you* — you do not pick up, and the
+   chain passes on intact, as in the worked example where `10♣` is followed by
+   the next player's `J♥`. A jack still reverses direction at three or more
+   players, and the chain then passes on in the new direction.
+   The first build applied the jack's heads-up skip during a chain too, so two
+   players in, a jack skipped the opponent and landed the pick-up straight back
+   on the player who had just escaped it. It does not skip a turn during a
+   pick-up at any table size.
+   Extra cards in the group carry one more player past the chain each — two
+   tens duck you and the player after you. That is **capped so the chain can
+   never come back round to whoever ducked it**: heads-up there is nobody to
+   carry past, so a second ten simply adds nothing rather than punishing you
+   for playing it. Outside a pick-up nothing changes: tens skip a turn each,
+   and a jack reverses, or skips heads-up.
 
 10. **Group ordering is the player's choice.** In a multi-card play the *first*
     card must be legal against the pile and the *last* one sets the suit going
