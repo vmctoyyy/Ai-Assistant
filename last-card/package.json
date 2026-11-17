@@ -10,12 +10,13 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "test:ui": "vite build && node test/ui.smoke.mjs",
+    "test:ui": "vite build && node test/ui.smoke.mjs && node test/elo.smoke.mjs",
     "test:all": "vitest run && npm run test:ui",
     "build:pages": "tsc --noEmit && vite build --outDir ../docs/last-card --emptyOutDir",
-    "build:artifact": "vite build && node tools/bundle-artifact.mjs"
+    "build:artifact": "vite build --mode artifact && node tools/bundle-artifact.mjs"
   },
   "dependencies": {
+    "firebase": "^13.4.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

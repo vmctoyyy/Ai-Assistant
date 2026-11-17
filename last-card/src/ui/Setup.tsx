@@ -4,7 +4,13 @@ import type { GameConfig } from '../engine/types';
 
 const DEFAULT_NAMES = ['Player 1', 'Player 2', 'Player 3', 'Player 4', 'Player 5', 'Player 6'];
 
-export function Setup({ onStart }: { onStart: (names: string[], config: Partial<GameConfig>) => void }) {
+export function Setup({
+  onStart,
+  onOpenRankings,
+}: {
+  onStart: (names: string[], config: Partial<GameConfig>) => void;
+  onOpenRankings: () => void;
+}) {
   const [count, setCount] = useState(3);
   const [names, setNames] = useState(DEFAULT_NAMES);
   const [deckCount, setDeckCount] = useState<1 | 2>(2);
@@ -76,6 +82,9 @@ export function Setup({ onStart }: { onStart: (names: string[], config: Partial<
           onClick={() => onStart(active, { deckCount, handSize })}
         >
           Deal
+        </button>
+        <button type="button" className="btn btn-quiet" onClick={onOpenRankings}>
+          Rankings
         </button>
       </footer>
     </div>

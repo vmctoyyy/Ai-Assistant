@@ -231,6 +231,42 @@ plays wrong at a real table.
   for three seconds. The engine does not depend on it — it marks the miss when
   the next player actually moves — so a slow hand-over cannot break the rule.
 
+## Elo rankings
+
+A separate, manual feature reached from **Rankings** on the setup screen, or
+at `#rankings`. Deliberately not wired to games played in the app: results are
+typed in by hand, there is no login, and one shared dataset is visible to
+everyone.
+
+```
+src/elo/
+  types.ts        Player, Game, Standing, RatingChange
+  elo.ts          the maths — pure, no React, no storage
+  store.ts        the EloStore interface, so the backend can be swapped
+  memoryStore.ts  in-memory store, for tests and ?eloStore=memory
+  firestoreStore.ts
+  backup.ts       export/import file format, pure
+  config.ts       Firebase details — blank until you fill them in
+src/state/useElo.ts
+src/ui/elo/       Leaderboard, AddPlayer, RecordGame, PlayerProfile
+```
+
+**The list of games is the only state.** Ratings, wins, losses and per-game
+changes are all derived by `replay()` from the starting rating, in server
+timestamp order. Nothing stores a rating, so deleting a game mid-history is
+the same as it never having happened — there is a test for exactly that.
+
+Nothing is ever destroyed. "Deleting" sets `deletedAt`; deleted records are
+hidden and skipped by the replay but stay in the database, and the Firestore
+rules deny `delete` outright so even a hostile client cannot erase history.
+
+Setup is in **ELO-SETUP.md** — it is blank until a Firebase project is
+connected, and the screen says so rather than silently saving nothing.
+
+`?eloStore=memory` swaps in the in-memory store so the screens can be driven
+in a browser without a database. Production never falls back to it: a store
+that forgets everything on reload would look like it was working.
+
 ## Phase 2 — networked play
 
 Started. The engine already runs anywhere, so the server side is mostly a

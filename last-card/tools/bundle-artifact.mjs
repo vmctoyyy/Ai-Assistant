@@ -12,8 +12,16 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const assets = join(root, 'dist', 'assets');
 const files = await readdir(assets);
 
+const scripts = files.filter((f) => f.endsWith('.js'));
+if (scripts.length !== 1) {
+  throw new Error(
+    `Expected exactly one bundled script, found ${scripts.length}: ${scripts.join(', ')}.\n` +
+      'A single-file artifact cannot fetch a lazy chunk — build with --mode artifact.',
+  );
+}
+
 const css = await readFile(join(assets, files.find((f) => f.endsWith('.css'))), 'utf8');
-const js = await readFile(join(assets, files.find((f) => f.endsWith('.js'))), 'utf8');
+const js = await readFile(join(assets, scripts[0]), 'utf8');
 
 // A literal </script> anywhere in the bundle would close the tag early.
 const safeJs = js.replace(/<\/script/gi, '<\\/script');

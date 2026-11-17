@@ -10,18 +10,25 @@ import { MoveLog } from './MoveLog';
 import { PenaltyDecision, PenaltyMenu } from './PenaltyMenu';
 import { Setup } from './Setup';
 import { Turn } from './Turn';
+import { EloApp } from './elo/EloApp';
 
 type Overlay = 'jumpIn' | 'penalty' | 'log' | null;
 
 export default function App() {
   const g = useGame();
   const [overlay, setOverlay] = useState<Overlay>(null);
+  // Rankings are a separate, manual feature: no link to games played here.
+  const [showRankings, setShowRankings] = useState(
+    () => typeof window !== 'undefined' && window.location.hash === '#rankings',
+  );
 
   const send = (move: Move) => {
     if (g.dispatch(move)) setOverlay(null);
   };
 
-  if (!g.game) return <Setup onStart={g.start} />;
+  if (showRankings) return <EloApp onBack={() => setShowRankings(false)} />;
+
+  if (!g.game) return <Setup onStart={g.start} onOpenRankings={() => setShowRankings(true)} />;
   const game = g.game;
 
   const turn = currentPlayer(game);
