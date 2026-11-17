@@ -1,131 +1,242 @@
-/* Elo rankings — deliberately plain.
-   Boxes, borders, system font, default buttons. No colour scheme, no icons,
-   no animation. Visual design comes later; this is meant to be legible and
-   usable on a phone, nothing more. It does not inherit the card game's theme,
-   which is why everything here is scoped under .elo. */
+/* Elo rankings.
+   Built on the card game's own shell — .screen, .topbar, .scroll, .actions
+   and the .btn family all come from styles.css, so opening Rankings feels
+   like the same app rather than a page bolted on beside it. Only what a
+   scoreboard needs that a card table does not is defined here.
 
-.elo {
-  min-height: 100%;
-  background: #fff;
-  color: #000;
-  font-family: system-ui, -apple-system, sans-serif;
-  font-size: 16px;
-  line-height: 1.4;
-  padding: 12px;
-  max-width: 640px;
-  margin: 0 auto;
-  box-sizing: border-box;
+   No web font: the app has to cold-start with no signal, so hierarchy is
+   carried by weight, size and spacing instead. */
+
+.elo-screen {
+  --gain: var(--gold);
+  --loss: #e3938c;
+  --rule: rgba(255, 255, 255, 0.1);
+  --panel: rgba(255, 255, 255, 0.05);
 }
 
-.elo * {
-  box-sizing: border-box;
+.elo-screen .scroll {
+  padding-bottom: 28px;
 }
 
-.elo h1 {
-  font-size: 20px;
-  margin: 0 0 12px;
+/* --- section headings ------------------------------------------------- */
+
+.elo-h2 {
+  margin: 26px 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
 }
 
-.elo h2 {
-  font-size: 17px;
-  margin: 16px 0 8px;
+.elo-h2:first-child {
+  margin-top: 4px;
 }
 
-.elo p {
-  margin: 0 0 10px;
-}
-
-.elo-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-/* Default buttons, just given a usable tap target. */
-.elo button {
-  font: inherit;
-  min-height: 44px;
-  padding: 8px 12px;
-  cursor: pointer;
-}
-
-.elo input,
-.elo select {
-  font: inherit;
-  /* 16px minimum or iOS zooms the page in on focus. */
-  font-size: 16px;
-  min-height: 44px;
-  padding: 6px 8px;
-  width: 100%;
-  border: 1px solid #000;
-}
-
-.elo label {
-  display: block;
-  margin-bottom: 10px;
-}
-
-.elo label > span {
-  display: block;
-  margin-bottom: 4px;
-}
+/* --- the leaderboard --------------------------------------------------- */
 
 .elo-table {
   width: 100%;
   border-collapse: collapse;
 }
 
-.elo-table th,
-.elo-table td {
-  border: 1px solid #000;
-  padding: 6px 8px;
+.elo-table thead th {
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
   text-align: left;
-  font-variant-numeric: tabular-nums;
 }
 
-.elo-table th {
-  font-weight: bold;
+.elo-table td {
+  padding: 13px 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: middle;
+}
+
+.elo-table tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .elo-num {
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
-/* A row that opens a profile. Kept as a button for keyboard and screen readers. */
-.elo-linkbtn {
+/* Rank sits quietly beside the name; the rating is the headline. */
+.elo-rank {
+  width: 2.4em;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+}
+
+.elo-row-lead .elo-rank {
+  color: var(--gold);
+  font-weight: 700;
+}
+
+.elo-name {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ink);
   background: none;
   border: none;
   padding: 0;
-  font: inherit;
-  text-decoration: underline;
+  text-align: left;
+  font-family: inherit;
   cursor: pointer;
   min-height: 0;
-  text-align: left;
 }
+
+.elo-rating {
+  width: 4.2em;
+  font-size: 21px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--ink);
+}
+
+.elo-row-lead .elo-rating {
+  color: var(--gold);
+}
+
+.elo-record {
+  width: 4.6em;
+  text-align: right;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+/* --- panels ------------------------------------------------------------ */
 
 .elo-box {
-  border: 1px solid #000;
-  padding: 10px;
+  padding: 14px 16px;
   margin-bottom: 12px;
-}
-
-.elo-error {
-  border: 2px solid #000;
-  padding: 10px;
-  margin-bottom: 12px;
-  font-weight: bold;
-}
-
-.elo-note {
-  font-size: 14px;
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  background: var(--panel);
 }
 
 .elo-empty {
-  border: 1px dashed #000;
-  padding: 10px;
-  margin-bottom: 12px;
+  padding: 18px 16px;
+  margin: 4px 0 12px;
+  border: 1px dashed var(--rule);
+  border-radius: 14px;
+  color: var(--ink-dim);
+  text-align: center;
 }
+
+.elo-note {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-dim);
+}
+
+.elo-error {
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--danger);
+  border-radius: 12px;
+  background: rgba(217, 83, 79, 0.18);
+  font-size: 15px;
+}
+
+.elo-error .btn {
+  margin-top: 10px;
+}
+
+/* --- the result of a game ---------------------------------------------- */
+
+.elo-result {
+  padding: 18px 16px;
+  margin-bottom: 14px;
+  border: 1px solid var(--gold);
+  border-radius: 16px;
+  background: rgba(226, 184, 87, 0.08);
+}
+
+.elo-result-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.elo-result-row + .elo-result-row {
+  border-top: 1px solid var(--rule);
+}
+
+.elo-result-name {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.elo-result-move {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+.elo-result-move strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.elo-delta {
+  display: inline-block;
+  min-width: 3.1em;
+  text-align: right;
+  font-size: 19px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.elo-up {
+  color: var(--gain);
+}
+
+.elo-down {
+  color: var(--loss);
+}
+
+/* --- a player's own page ----------------------------------------------- */
+
+.elo-hero {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.elo-hero-rating {
+  font-size: 44px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--gold);
+}
+
+.elo-hero-meta {
+  font-size: 14px;
+  color: var(--ink-dim);
+}
+
+.elo-hero-meta div + div {
+  margin-top: 3px;
+}
+
+/* --- game history ------------------------------------------------------ */
 
 .elo-list {
   list-style: none;
@@ -134,17 +245,110 @@
 }
 
 .elo-list li {
-  border: 1px solid #000;
-  padding: 8px;
-  margin-bottom: 6px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.elo-list li:last-child {
+  border-bottom: none;
+}
+
+.elo-game {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.elo-game-what {
+  font-size: 16px;
+}
+
+.elo-game-when {
+  display: block;
+  margin-top: 3px;
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+
+.elo-outcome {
+  font-weight: 600;
+}
+
+/* --- forms ------------------------------------------------------------- */
+
+.elo-field {
+  display: block;
+  margin-bottom: 16px;
+}
+
+.elo-field > span {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+/* 16px minimum, or iOS zooms the page in on focus. */
+.elo-field input,
+.elo-field select {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 11px 13px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+}
+
+.elo-field input:focus-visible,
+.elo-field select:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+
+/* A row of small controls inside a list item. */
+.elo-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .elo-setup code {
   display: block;
-  white-space: pre-wrap;
-  word-break: break-all;
-  border: 1px solid #000;
-  padding: 8px;
-  margin: 8px 0;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.3);
   font-size: 13px;
+  word-break: break-word;
+}
+
+/* --- filling the page -------------------------------------------------- */
+
+/* A short list left the backup block stranded halfway down an empty screen.
+   Anchoring it to the foot of the scroll keeps the table at the top and the
+   housekeeping out of the way, at any list length. */
+.elo-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.elo-footnote {
+  margin-top: auto;
+  padding-top: 26px;
+}
+
+/* A recorded result is the one moment in here worth centring. */
+.elo-centre {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }

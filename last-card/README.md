@@ -260,6 +260,17 @@ Nothing is ever destroyed. "Deleting" sets `deletedAt`; deleted records are
 hidden and skipped by the replay but stay in the database, and the Firestore
 rules deny `delete` outright so even a hostile client cannot erase history.
 
+The screens are built on the card game's own shell — `.screen`, `.topbar`,
+`.scroll`, `.actions` and the `.btn` family all come from `styles.css` — so
+Rankings reads as part of the app rather than a page beside it. `elo.css` only
+adds what a scoreboard needs that a card table does not. No web font: the app
+has to cold-start with no signal, so hierarchy is weight, size and spacing.
+
+**Rank groups by the rating people can see.** The order is by true rating, but
+two players a tenth of a point apart both print 1001, and showing those as 2nd
+and 3rd reads as a fault rather than a margin. Equal printed ratings share a
+rank and the next distinct one skips the ranks used up.
+
 Setup is in **ELO-SETUP.md** — it is blank until a Firebase project is
 connected, and the screen says so rather than silently saving nothing.
 

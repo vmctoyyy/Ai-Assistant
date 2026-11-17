@@ -13,9 +13,19 @@ type Screen =
   | { name: 'recordGame' }
   | { name: 'player'; playerId: string };
 
+const TITLES: Record<Screen['name'], string> = {
+  leaderboard: 'Rankings',
+  addPlayer: 'Add player',
+  recordGame: 'Record game',
+  player: 'Player',
+};
+
 /**
  * Screen switching by state, the same as the card game's App — this project
  * has no router and adding one for four screens would not earn its keep.
+ *
+ * The shell is the game's own: .screen, .topbar, .scroll and .actions, so
+ * Rankings reads as part of the app rather than a page bolted on beside it.
  */
 export function EloApp({ onBack }: { onBack: () => void }) {
   const api = useElo();
@@ -31,33 +41,51 @@ export function EloApp({ onBack }: { onBack: () => void }) {
     await api.importBackup(await file.text());
   }
 
+  const onLeaderboard = screen.name === 'leaderboard';
+  const title =
+    screen.name === 'player'
+      ? api.table.standings.get(screen.playerId)?.name ?? TITLES.player
+      : TITLES[screen.name];
+
   if (api.readiness.state === 'unconfigured') {
     return (
-      <div className="elo elo-setup">
-        <h1>Rankings</h1>
-        <p className="elo-box">
-          This needs a database, and it has not been set up yet. Nothing is saved until it is.
-        </p>
-        <p>
-          The connection details go in <code>src/elo/config.ts</code>. See{' '}
-          <strong>ELO-SETUP.md</strong> in the <code>last-card</code> folder for the steps and for
-          exactly what the database rules allow.
-        </p>
-        <div className="elo-bar">
-          <button type="button" onClick={onBack}>
-            Back to game
+      <div className="screen elo-screen elo-setup">
+        <header className="topbar">
+          <h1 className="topbar-title">Rankings</h1>
+          <button type="button" className="btn btn-tiny" onClick={onBack}>
+            Back
           </button>
+        </header>
+        <div className="scroll">
+          <p className="elo-box">
+            This needs a database, and it has not been set up yet. Nothing is saved until it is.
+          </p>
+          <p className="elo-note">
+            The connection details go in <code>src/elo/config.ts</code>. See ELO-SETUP.md in the
+            last-card folder for the steps, and for exactly what the database rules allow.
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="elo">
+    <div className="screen elo-screen">
+      <header className="topbar">
+        <h1 className="topbar-title">{title}</h1>
+        <button
+          type="button"
+          className="btn btn-tiny"
+          onClick={onLeaderboard ? onBack : leaderboard}
+        >
+          {onLeaderboard ? 'Back to game' : 'Rankings'}
+        </button>
+      </header>
+
       {api.error ? (
         <div className="elo-error" role="alert">
-          {api.error}{' '}
-          <button type="button" onClick={api.clearError}>
+          {api.error}
+          <button type="button" className="btn btn-tiny" onClick={api.clearError}>
             Dismiss
           </button>
         </div>
@@ -69,7 +97,11 @@ export function EloApp({ onBack }: { onBack: () => void }) {
         </div>
       ) : null}
 
-      {api.readiness.state === 'loading' ? <p className="elo-box">Loading…</p> : null}
+      {api.readiness.state === 'loading' ? (
+        <div className="scroll">
+          <p className="elo-box">Loading…</p>
+        </div>
+      ) : null}
 
       <input
         ref={fileInput}
@@ -80,14 +112,13 @@ export function EloApp({ onBack }: { onBack: () => void }) {
         onChange={onFileChosen}
       />
 
-      {screen.name === 'leaderboard' ? (
+      {api.readiness.state !== 'loading' && screen.name === 'leaderboard' ? (
         <Leaderboard
           api={api}
           onAddPlayer={() => setScreen({ name: 'addPlayer' })}
           onRecordGame={() => setScreen({ name: 'recordGame' })}
           onOpenPlayer={(playerId) => setScreen({ name: 'player', playerId })}
           onImport={() => fileInput.current?.click()}
-          onBack={onBack}
         />
       ) : null}
 

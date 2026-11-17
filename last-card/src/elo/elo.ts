@@ -145,9 +145,13 @@ function rankStandings(
 
   const out = new Map<string, Standing>();
   rows.forEach((row, i) => {
-    // Equal ratings share a rank, and the next rank skips accordingly.
+    // Order is by true rating, but the rank number groups by the rating people
+    // can actually see: two players a tenth of a point apart both read 1001,
+    // and showing them as 2nd and 3rd looks like a fault rather than a margin.
+    // The next distinct rating skips the ranks used up, as ordinals should.
     const previous = rows[i - 1];
-    row.rank = previous && previous.rating === row.rating ? out.get(previous.playerId)!.rank : i + 1;
+    const tied = previous && forDisplay(previous.rating) === forDisplay(row.rating);
+    row.rank = tied ? out.get(previous.playerId)!.rank : i + 1;
     out.set(row.playerId, row);
   });
   return out;

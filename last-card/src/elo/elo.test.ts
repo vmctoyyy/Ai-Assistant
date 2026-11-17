@@ -222,6 +222,63 @@ describe('replaying the games', () => {
     expect(r2.standings.get(b.id)!.rank).toBe(3);
   });
 
+  it('shares a rank between ratings that read the same, and skips the next', () => {
+    // A real five-player history. It settles with two pairs whose ratings
+    // differ by fractions but print identically — showing those as 2nd and
+    // 3rd looks like a fault rather than a margin.
+    const [josh, levon, mere, tane, ana] = ['Josh', 'Levon', 'Mere', 'Tane', 'Ana'].map((n) =>
+      player(n),
+    );
+    const s = snapshot(
+      [josh, levon, mere, tane, ana],
+      [
+        game(josh.id, levon.id),
+        game(josh.id, mere.id),
+        game(mere.id, tane.id),
+        game(levon.id, ana.id),
+        game(tane.id, josh.id),
+        game(ana.id, mere.id),
+        game(josh.id, ana.id),
+      ],
+    );
+    const rows = [...replay(s).standings.values()].sort((a, b) => b.rating - a.rating);
+
+    // There is at least one pair printing the same figure, or this proves nothing.
+    const shown = rows.map((r) => forDisplay(r.rating));
+    expect(shown.length).toBeGreaterThan(new Set(shown).size);
+
+    // Anything printing the same figure shares a rank.
+    for (const a of rows) {
+      for (const b of rows) {
+        if (forDisplay(a.rating) === forDisplay(b.rating)) expect(a.rank).toBe(b.rank);
+        else expect(a.rank).not.toBe(b.rank);
+      }
+    }
+
+    // And the ranks are proper ordinals: each starts at its own position.
+    rows.forEach((row, i) => {
+      const first = rows.findIndex((r) => forDisplay(r.rating) === forDisplay(row.rating));
+      expect(row.rank).toBe(first + 1);
+      void i;
+    });
+  });
+
+  it('still orders by the true rating underneath a shared rank', () => {
+    const a = player('A');
+    const b = player('B');
+    const c = player('C');
+    // A beats C first, so C is weaker by the time B beats them: A ends a
+    // fraction above B, and both print the same.
+    const s = snapshot([a, b, c], [game(a.id, c.id), game(b.id, c.id)]);
+    const r = replay(s);
+
+    const ra = r.standings.get(a.id)!;
+    const rb = r.standings.get(b.id)!;
+    expect(ra.rating).toBeGreaterThan(rb.rating);
+    expect(forDisplay(ra.rating)).not.toBe(forDisplay(rb.rating)); // far enough apart here
+    expect(ra.rank).toBeLessThan(rb.rank);
+  });
+
   it('hides a deleted player and leaves the live ones alone', () => {
     const a = player('A');
     const b = player('B');

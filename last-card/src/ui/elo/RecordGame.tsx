@@ -1,8 +1,11 @@
 import { useState } from 'react';
 
-import { forDisplay, formatDelta } from '../../elo/elo';
+import { forDisplay } from '../../elo/elo';
+import { prettyDelta } from './delta';
 import type { RatingChange } from '../../elo/types';
 import type { EloApi } from '../../state/useElo';
+
+const FORM_ID = 'elo-record-game';
 
 export function RecordGame({ api, onDone }: { api: EloApi; onDone: () => void }) {
   const players = api.standings;
@@ -26,79 +29,97 @@ export function RecordGame({ api, onDone }: { api: EloApi; onDone: () => void })
 
   if (savedGameId) {
     return (
-      <div>
-        <h1>Result recorded</h1>
-        {changes ? (
-          <div className="elo-box">
-            {changes.map((c) => (
-              <p key={c.playerId}>
-                {nameOf(c.playerId)} {forDisplay(c.before)} -&gt; {forDisplay(c.after)} (
-                {formatDelta(c.delta)})
-              </p>
-            ))}
-          </div>
-        ) : (
-          <p className="elo-box">Saved. Working out the new ratings…</p>
-        )}
-        <div className="elo-bar">
-          <button
-            type="button"
-            onClick={() => {
-              setSavedGameId(null);
-              setWinnerId('');
-              setLoserId('');
-            }}
-          >
-            Record another
-          </button>
-          <button type="button" onClick={onDone}>
-            Done
-          </button>
+      <>
+        <div className="scroll elo-centre">
+          {changes ? (
+            <div className="elo-result elo-box">
+              {changes.map((c) => (
+                <div className="elo-result-row" key={c.playerId}>
+                  <span className="elo-result-name">{nameOf(c.playerId)}</span>
+                  <span className="elo-result-move">
+                    {forDisplay(c.before)} → <strong>{forDisplay(c.after)}</strong>
+                    <span className={`elo-delta ${c.delta >= 0 ? 'elo-up' : 'elo-down'}`}>
+                      {prettyDelta(c.delta)}
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="elo-box">Saved. Working out the new ratings…</p>
+          )}
         </div>
-      </div>
+
+        <footer className="actions">
+          <div className="actions-row">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => {
+                setSavedGameId(null);
+                setWinnerId('');
+                setLoserId('');
+              }}
+            >
+              Record another
+            </button>
+            <button type="button" className="btn btn-primary" onClick={onDone}>
+              Done
+            </button>
+          </div>
+        </footer>
+      </>
     );
   }
 
   return (
-    <div>
-      <h1>Record game</h1>
-      <form onSubmit={submit}>
-        <label>
-          <span>Winner</span>
-          <select id="elo-winner" value={winnerId} onChange={(e) => setWinnerId(e.target.value)}>
-            <option value="">Choose…</option>
-            {players.map((p) => (
-              <option key={p.playerId} value={p.playerId}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label>
-          <span>Loser</span>
-          <select id="elo-loser" value={loserId} onChange={(e) => setLoserId(e.target.value)}>
-            <option value="">Choose…</option>
-            {players
-              .filter((p) => p.playerId !== winnerId)
-              .map((p) => (
+    <>
+      <div className="scroll">
+        <form id={FORM_ID} onSubmit={submit}>
+          <label className="elo-field">
+            <span>Winner</span>
+            <select id="elo-winner" value={winnerId} onChange={(e) => setWinnerId(e.target.value)}>
+              <option value="">Choose…</option>
+              {players.map((p) => (
                 <option key={p.playerId} value={p.playerId}>
                   {p.name}
                 </option>
               ))}
-          </select>
-        </label>
+            </select>
+          </label>
 
-        <div className="elo-bar">
-          <button type="submit" disabled={api.busy || !winnerId || !loserId}>
+          <label className="elo-field">
+            <span>Loser</span>
+            <select id="elo-loser" value={loserId} onChange={(e) => setLoserId(e.target.value)}>
+              <option value="">Choose…</option>
+              {players
+                .filter((p) => p.playerId !== winnerId)
+                .map((p) => (
+                  <option key={p.playerId} value={p.playerId}>
+                    {p.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+        </form>
+        <p className="elo-note">One winner, one loser. No draws.</p>
+      </div>
+
+      <footer className="actions">
+        <div className="actions-row">
+          <button
+            type="submit"
+            form={FORM_ID}
+            className="btn btn-primary"
+            disabled={api.busy || !winnerId || !loserId}
+          >
             {api.busy ? 'Saving…' : 'Record result'}
           </button>
-          <button type="button" onClick={onDone}>
+          <button type="button" className="btn btn-quiet" onClick={onDone}>
             Cancel
           </button>
         </div>
-      </form>
-      <p className="elo-note">One winner, one loser. No draws.</p>
-    </div>
+      </footer>
+    </>
   );
 }

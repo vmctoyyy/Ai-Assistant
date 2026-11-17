@@ -68,16 +68,16 @@ async function addPlayer(name) {
 
 // --- unconfigured, with no database, must say so rather than pretend -------
 await page.goto(`${base}?eloStore=none#rankings`);
-await page.waitForSelector('.elo');
+await page.waitForSelector('.elo-screen');
 const setupText = await page.locator('.elo-box').first().textContent();
 check('says plainly it is not set up when there is no database', /not been set up/.test(setupText), setupText);
 check('and saves nothing in that state', (await page.locator('.elo-table').count()) === 0);
-await tapText('Back to game');
+await tapText('Back');
 check('can get back to the game from there', (await page.locator('.topbar-title').count()) === 1);
 
 // --- with a store, the real screens ---------------------------------------
 await page.goto(`${base}?eloStore=memory#rankings`);
-await page.waitForSelector('.elo');
+await page.waitForSelector('.elo-screen');
 check('empty table invites a first player', /No players yet/.test(await page.locator('.elo-empty').first().textContent()));
 check('record game is unavailable with nobody to pick', await page.getByRole('button', { name: 'Record game' }).isDisabled());
 
@@ -85,7 +85,7 @@ await addPlayer('Josh');
 await addPlayer('Levon');
 const names = await page.locator('.elo-table tbody .elo-linkbtn').allTextContents();
 check('both players are listed', names.join(',') === 'Josh,Levon', names.join(','));
-const startRatings = await page.locator('.elo-table tbody tr td:nth-child(3)').allTextContents();
+const startRatings = await page.locator('.elo-table tbody .elo-rating').allTextContents();
 check('everyone starts on 1000', startRatings.every((r) => r === '1000'), startRatings.join(','));
 
 // --- duplicate and blank names are refused --------------------------------
@@ -106,24 +106,31 @@ check('the winner cannot also be picked as the loser', !loserOptions.includes('J
 await page.selectOption('#elo-loser', { label: 'Levon' });
 await tapText('Record result');
 
-await page.waitForSelector('.elo-box');
-const result = await page.locator('.elo-box').textContent();
-check('shows the result the brief asked for', /Josh 1000 -> 1016 \(\+16\)/.test(result), result);
-check('and the loser the other way', /Levon 1000 -> 984 \(-16\)/.test(result), result);
+await page.waitForSelector('.elo-result');
+const rows = await page.locator('.elo-result-row').allTextContents();
+const flat = rows.join(' | ').replace(/\s+/g, ' ');
+check('shows the winner moving up', /Josh ?1000 → 1016\+16/.test(flat.replace(/ /g, '')) || /Josh.*1000.*1016.*\+16/.test(flat), flat);
+// A real minus sign (U+2212), not a hyphen: under tabular figures a hyphen is
+// padded to a digit's width and reads as "- 16".
+check('and the loser moving down', /Levon.*1000.*984.*\u221216/.test(flat), flat);
+check('the minus is a real minus, not a hyphen', !/\u2212?-\d/.test(flat), flat);
+check('the gain and the loss are told apart visually', (await page.locator('.elo-up').count()) === 1 && (await page.locator('.elo-down').count()) === 1);
 await tapText('Done');
 
-const afterRatings = await page.locator('.elo-table tbody tr td:nth-child(3)').allTextContents();
+const afterRatings = await page.locator('.elo-table tbody .elo-rating').allTextContents();
 check('the leaderboard reorders by rating', afterRatings.join(',') === '1016,984', afterRatings.join(','));
 
 // --- profile --------------------------------------------------------------
 await tap('.elo-table tbody .elo-linkbtn');
-const profile = await page.locator('.elo-box').first().textContent();
-check('profile shows the rating', /Rating 1016/.test(profile), profile);
-check('profile shows the record and win rate', /1 won, 0 lost — 100% wins/.test(profile), profile);
+await page.waitForSelector('.elo-hero');
+check('profile leads with the rating', (await page.locator('.elo-hero-rating').textContent()) === '1016');
+const meta = (await page.locator('.elo-hero-meta').textContent()).replace(/\s+/g, ' ');
+check('profile shows the record and win rate', /1 won · 0 lost/.test(meta) && /100% wins/.test(meta), meta);
 check('head-to-head lists the opponent', (await page.locator('.elo-table').nth(0).textContent()).includes('Levon'));
 check('game history has the game', (await page.locator('.elo-list li').count()) === 1);
-const historyRow = await page.locator('.elo-list li').first().textContent();
-check('history shows win and rating change', /Won v Levon \(\+16\)/.test(historyRow), historyRow);
+const historyRow = (await page.locator('.elo-list li').first().textContent()).replace(/\s+/g, ' ');
+check('history shows the outcome and opponent', /Won v Levon/.test(historyRow), historyRow);
+check('history shows the rating change', /\+16/.test(historyRow), historyRow);
 
 // --- a player with games cannot be deleted --------------------------------
 check(
@@ -137,8 +144,8 @@ check('deleting asks first', (await page.getByRole('button', { name: 'Yes, delet
 await tapText('Yes, delete this game');
 await page.waitForSelector('.elo-list', { state: 'detached', timeout: 5000 }).catch(() => {});
 check('the game is gone from the history', (await page.locator('.elo-list li').count()) === 0);
-const reverted = await page.locator('.elo-box').first().textContent();
-check('and the rating goes back to the start', /Rating 1000/.test(reverted), reverted);
+const reverted = await page.locator('.elo-hero-rating').textContent();
+check('and the rating goes back to the start', reverted === '1000', reverted);
 
 // --- now the player can go ------------------------------------------------
 await tapText('Delete player');
