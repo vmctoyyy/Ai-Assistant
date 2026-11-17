@@ -589,3 +589,50 @@ body {
   text-align: center;
   cursor: pointer;
 }
+
+/* --- the title screen -------------------------------------------------- */
+
+.menu-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px 16px;
+  min-height: 0;
+}
+
+.menu-title {
+  margin: 0;
+  font-size: clamp(42px, 13vw, 60px);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.05;
+  text-align: center;
+  color: var(--ink);
+}
+
+.menu-suits {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0;
+}
+
+/* Drawn, not typed — see Pips.tsx for why. */
+.menu-pip {
+  width: 19px;
+  height: 19px;
+  fill: var(--ink-dim);
+}
+
+.menu-pip.is-red {
+  fill: #c9736c;
+}
+
+/* The two things you can do, given room to be tapped without looking. */
+.btn-menu {
+  min-height: 58px;
+  font-size: 18px;
+}

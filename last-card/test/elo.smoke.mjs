@@ -72,8 +72,8 @@ await page.waitForSelector('.elo-screen');
 const setupText = await page.locator('.elo-box').first().textContent();
 check('says plainly it is not set up when there is no database', /not been set up/.test(setupText), setupText);
 check('and saves nothing in that state', (await page.locator('.elo-table').count()) === 0);
-await tapText('Back');
-check('can get back to the game from there', (await page.locator('.topbar-title').count()) === 1);
+await tapText('Menu');
+check('can get back to the menu from there', (await page.locator('.menu-title').count()) === 1);
 
 // --- with a store, the real screens ---------------------------------------
 await page.goto(`${base}?eloStore=memory#rankings`);

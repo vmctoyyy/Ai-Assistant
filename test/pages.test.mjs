@@ -82,24 +82,36 @@ check('its scope covers the whole site', scope.endsWith(PREFIX), scope);
 
 // --- the sibling app must not be hijacked --------------------------------
 await page.goto(`${site}last-card/`);
+// The game opens on its title screen; the dashboard has no such thing.
 let title = null;
 try {
-  await page.waitForSelector('.topbar-title', { timeout: 8000 });
-  title = await page.locator('.topbar-title').textContent();
+  await page.waitForSelector('.menu-title', { timeout: 8000 });
+  title = await page.locator('.menu-title').textContent();
 } catch {
-  // The worker answered with somebody else's shell.
-  title = `[no game — served "${await page.title()}" instead]`;
+  title = `[no title screen — served "${await page.title()}" instead]`;
 }
 check('the game renders, not the dashboard', title === 'Last Card', `got ${title}`);
 if (title !== 'Last Card') {
-  console.log('\nThe sibling app was hijacked by the service worker. Stopping here.');
+  // Distinguish the two ways this fails, because they send you to opposite
+  // ends of the repository.
+  const servedQuietDesk = (await page.locator('.bubble, .screen-body').count()) > 0;
+  console.log(
+    servedQuietDesk
+      ? '\nThe worker served the Quiet Desk shell for a Last Card URL — check docs/sw.js scoping.'
+      : '\nLast Card loaded but its title screen is missing — check src/ui/Menu.tsx, not the worker.',
+  );
   await browser.close();
   server.close();
   process.exit(1);
 }
-check('the game bundle loaded', (await page.locator('.field').count()) > 0);
 
 // It must still be playable, not just render.
+const play = page.getByRole('button', { name: 'Play', exact: true });
+const p0 = await play.boundingBox();
+await page.mouse.click(p0.x + p0.width / 2, p0.y + p0.height / 2);
+await page.waitForSelector('.field');
+check('the game bundle loaded', (await page.locator('.field').count()) > 0);
+
 const deal = page.getByRole('button', { name: 'Deal' });
 const d = await deal.boundingBox();
 await page.mouse.click(d.x + d.width / 2, d.y + d.height / 2);
@@ -145,8 +157,8 @@ await context.setOffline(true);
 await page.goto(`${site}last-card/`);
 let offlineTitle = null;
 try {
-  await page.waitForSelector('.topbar-title', { timeout: 8000 });
-  offlineTitle = await page.locator('.topbar-title').textContent();
+  await page.waitForSelector('.menu-title', { timeout: 8000 });
+  offlineTitle = await page.locator('.menu-title').textContent();
 } catch {
   offlineTitle = '[did not load]';
 }

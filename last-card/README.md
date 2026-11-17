@@ -233,7 +233,7 @@ plays wrong at a real table.
 
 ## Elo rankings
 
-A separate, manual feature reached from **Rankings** on the setup screen, or
+A separate, manual feature reached from **Rankings** on the title screen, or
 at `#rankings`. Deliberately not wired to games played in the app: results are
 typed in by hand, there is no login, and one shared dataset is visible to
 everyone.

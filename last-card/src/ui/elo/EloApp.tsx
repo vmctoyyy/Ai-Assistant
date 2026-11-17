@@ -53,7 +53,7 @@ export function EloApp({ onBack }: { onBack: () => void }) {
         <header className="topbar">
           <h1 className="topbar-title">Rankings</h1>
           <button type="button" className="btn btn-tiny" onClick={onBack}>
-            Back
+            Menu
           </button>
         </header>
         <div className="scroll">
@@ -78,7 +78,7 @@ export function EloApp({ onBack }: { onBack: () => void }) {
           className="btn btn-tiny"
           onClick={onLeaderboard ? onBack : leaderboard}
         >
-          {onLeaderboard ? 'Back to game' : 'Rankings'}
+          {onLeaderboard ? 'Menu' : 'Rankings'}
         </button>
       </header>
 

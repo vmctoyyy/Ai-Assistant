@@ -76,8 +76,18 @@ async function tapText(text) {
 
 await page.goto(base);
 
+// --- the title screen ----------------------------------------------------
+check('opens on the menu', (await page.locator('.menu-title').textContent()) === 'Last Card');
+check('offering the two things you can do', (await page.locator('.actions .btn').count()) === 2);
+for (const name of ['Play', 'Rankings']) {
+  const box = await page.getByRole('button', { name, exact: true }).boundingBox();
+  check(`${name} is a thumb-sized target`, box.height >= 44, `${Math.round(box.height)}px`);
+  check(`${name} sits inside the viewport`, box.y + box.height <= 844);
+}
+await tapText('Play');
+
 // --- setup ---------------------------------------------------------------
-check('setup screen renders', await page.locator('.topbar-title').textContent() === 'Last Card');
+check('Play opens the setup form', (await page.locator('.topbar-title').textContent()) === 'New game');
 await page.selectOption('.field:has-text("Players") select', '3');
 check('three name fields appear', (await page.locator('.field input[type=text]').count()) === 3);
 await tapText('Deal');
@@ -165,6 +175,7 @@ check('a confirmed penalty is picked up', Number(handAfter) > Number(handBefore)
 // Seed 128 deals Ana 9S KC 6S 8S JOKER 10S QS onto a 3H — the joker is her only
 // legal card, so the nomination sheet is unavoidable.
 await page.goto(`${base}?seed=128`);
+await tapText('Play');
 await page.selectOption('.field:has-text("Players") select', '3');
 await tapText('Deal');
 await tap('.btn-reveal');

@@ -8,6 +8,7 @@ import { Handover } from './Handover';
 import { JumpInSheet } from './JumpInSheet';
 import { MoveLog } from './MoveLog';
 import { PenaltyDecision, PenaltyMenu } from './PenaltyMenu';
+import { Menu } from './Menu';
 import { Setup } from './Setup';
 import { Turn } from './Turn';
 import { EloApp } from './elo/EloApp';
@@ -21,6 +22,10 @@ export default function App() {
   const [showRankings, setShowRankings] = useState(
     () => typeof window !== 'undefined' && window.location.hash === '#rankings',
   );
+  // Where to land when there is no game on: the title screen, or the setup
+  // form. Dealing again after a finished game goes straight back to setup
+  // rather than making you pass through the menu each time.
+  const [atMenu, setAtMenu] = useState(true);
 
   const send = (move: Move) => {
     if (g.dispatch(move)) setOverlay(null);
@@ -28,7 +33,13 @@ export default function App() {
 
   if (showRankings) return <EloApp onBack={() => setShowRankings(false)} />;
 
-  if (!g.game) return <Setup onStart={g.start} onOpenRankings={() => setShowRankings(true)} />;
+  if (!g.game) {
+    return atMenu ? (
+      <Menu onPlay={() => setAtMenu(false)} onRankings={() => setShowRankings(true)} />
+    ) : (
+      <Setup onStart={g.start} onBack={() => setAtMenu(true)} />
+    );
+  }
   const game = g.game;
 
   const turn = currentPlayer(game);
