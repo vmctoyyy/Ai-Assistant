@@ -67,7 +67,7 @@ async function addPlayer(name) {
 }
 
 // --- unconfigured, with no database, must say so rather than pretend -------
-await page.goto(`${base}#rankings`);
+await page.goto(`${base}?eloStore=none#rankings`);
 await page.waitForSelector('.elo');
 const setupText = await page.locator('.elo-box').first().textContent();
 check('says plainly it is not set up when there is no database', /not been set up/.test(setupText), setupText);

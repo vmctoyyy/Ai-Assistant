@@ -23,18 +23,25 @@ export type Readiness =
 const EMPTY: EloSnapshot = { players: [], games: [] };
 
 /**
- * `?eloStore=memory` swaps in the in-memory store, so the screens can be
- * driven in a browser test without a Firebase project. Production never falls
- * back to it: a store that forgets everything on reload would look like it
- * was working.
+ * Test hooks, both inert unless asked for by name in the address:
+ *   ?eloStore=memory  the in-memory store, so the screens can be driven in a
+ *                     browser without touching the real database
+ *   ?eloStore=none    pretend nothing is configured, to exercise the
+ *                     not-set-up screen once a real config exists
+ *
+ * Production never falls back to the memory store on its own: one that forgets
+ * everything on reload would look like it was working.
  */
-function wantsMemoryStore(): boolean {
-  if (typeof window === 'undefined') return false;
-  return new URLSearchParams(window.location.search).get('eloStore') === 'memory';
+function storeOverride(): 'memory' | 'none' | null {
+  if (typeof window === 'undefined') return null;
+  const asked = new URLSearchParams(window.location.search).get('eloStore');
+  return asked === 'memory' || asked === 'none' ? asked : null;
 }
 
 async function makeStore(): Promise<EloStore | null> {
-  if (wantsMemoryStore()) return new MemoryEloStore();
+  const override = storeOverride();
+  if (override === 'memory') return new MemoryEloStore();
+  if (override === 'none') return null;
   if (!isFirebaseConfigured(FIREBASE_CONFIG)) return null;
   // Loaded only when it will actually be used, so an unconfigured app never
   // pays for the Firebase bundle.
