@@ -7,6 +7,7 @@
  *   node tools/make-icons.mjs
  */
 import { chromium } from 'playwright';
+import { launchOptions } from '../../test/browser.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,9 +48,7 @@ const icon = (size) => `
   </div>
 </div>`;
 
-const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-});
+const browser = await chromium.launch(launchOptions());
 
 for (const size of [120, 152, 167, 180, 192, 512, 1024]) {
   const page = await browser.newPage({ viewport: { width: size, height: size } });

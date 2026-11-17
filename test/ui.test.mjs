@@ -10,6 +10,7 @@
  */
 import { spawn } from 'child_process';
 import { chromium, devices } from 'playwright';
+import { launchOptions } from './browser.mjs';
 
 const PORT = process.env.PORT || 8899;
 const BASE = `http://localhost:${PORT}`;
@@ -19,7 +20,7 @@ const stop = () => { try { server.kill(); } catch {} };
 process.on('exit', stop);
 await new Promise(r => setTimeout(r, 800));
 
-const b = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
+const b = await chromium.launch(launchOptions());
 let pass = 0, fail = 0;
 const check = (n, ok, d) => { ok ? pass++ : fail++; console.log(`  ${ok?'ok  ':'FAIL'} ${n}${d?' — '+d:''}`); };
 /* Screens and sheets now animate in on the iOS curve, so anything that

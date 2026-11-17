@@ -56,9 +56,11 @@ npm run typecheck
 From the repository root, `node test/sw.test.js` and `node test/pages.test.mjs`
 cover the two apps sharing one service worker scope.
 
-`npm run test:ui` needs the Chromium at
-`/opt/pw-browsers/chromium-1194/chrome-linux/chrome`; change `executablePath`
-in `test/ui.smoke.mjs` if yours lives elsewhere.
+`npm run test:ui` finds the sandbox's Chromium through `test/browser.mjs` in
+the repository root, which is shared with the Quiet Desk suites. Set `CHROME`
+to point at a different one. Nothing hardcodes a build number any more — the
+sandbox's moved from `chromium-1194/chrome-linux` to
+`chromium-1243/chrome-linux64` and broke every browser suite at once.
 
 The engine suite is the safety net for rules. The browser smoke test exists
 because a green rules suite cannot see a dead button, a control pushed off the

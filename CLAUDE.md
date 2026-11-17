@@ -396,9 +396,14 @@ Two suites, both required:
 
 ```
 node test/logic.test.js                    # pure rules
-npm i playwright && CHROME=/opt/pw-browsers/chromium-1194/chrome-linux/chrome \
-  node test/ui.test.mjs                    # taps every control in a browser
+npm i && node test/ui.test.mjs             # taps every control in a browser
 ```
+
+The browser suites find Chromium themselves, through `test/browser.mjs`. Do
+not hardcode a path back in: the sandbox's build number moves and so does its
+layout — `chromium-1194/chrome-linux` became `chromium-1243/chrome-linux64`,
+which broke every browser suite in the repository at once. Set `CHROME` to
+override.
 
 Logic tests cannot see hit-testing, focus or layout bugs. Every UI bug that
 has reached the user got past a green logic suite. When touching the sheet or

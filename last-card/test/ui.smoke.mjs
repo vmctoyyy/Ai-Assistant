@@ -6,6 +6,7 @@
  *   npx vite build && node test/ui.smoke.mjs
  */
 import { chromium } from 'playwright';
+import { launchOptions } from '../../test/browser.mjs';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
@@ -34,9 +35,7 @@ function check(label, ok, detail = '') {
   if (!ok) failures++;
 }
 
-const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-});
+const browser = await chromium.launch(launchOptions());
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true });
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
